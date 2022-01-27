@@ -41,6 +41,16 @@ public:
 	virtual void on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar) {}
 	virtual void on_session_begin(uint32_t uTDate) {}
 	virtual void on_session_end(uint32_t uTDate) {}
+	/*
+	 *	回测结束事件
+	 *	只在回测下才会触发
+	 */
+	virtual void on_bactest_end() {};
+
+	virtual void on_tick_updated(const char* stdCode, WTSTickData* newTick) {}
+	virtual void on_ordque_updated(const char* stdCode, WTSOrdQueData* newOrdQue) {}
+	virtual void on_orddtl_updated(const char* stdCode, WTSOrdDtlData* newOrdDtl) {}
+	virtual void on_trans_updated(const char* stdCode, WTSTransData* newTrans) {}
 
 	//策略接口
 	virtual bool		stra_cancel(uint32_t localid) = 0;
@@ -61,7 +71,7 @@ public:
 	virtual WTSTransSlice*	stra_get_transaction(const char* stdCode, uint32_t count) = 0;
 	virtual WTSTickData*	stra_get_last_tick(const char* stdCode) = 0;
 
-	virtual double stra_get_position(const char* stdCode) = 0;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false) = 0;
 	virtual double stra_get_position_profit(const char* stdCode) = 0;
 	virtual double stra_get_price(const char* stdCode) = 0;
 	virtual double stra_get_undone(const char* stdCode) = 0;
@@ -75,7 +85,9 @@ public:
 	virtual void stra_sub_order_details(const char* stdCode) = 0;
 	virtual void stra_sub_transactions(const char* stdCode) = 0;
 
-	virtual void stra_log_text(const char* fmt, ...) = 0;
+	virtual void stra_log_info(const char* fmt, ...) = 0;
+	virtual void stra_log_debug(const char* fmt, ...) = 0;
+	virtual void stra_log_error(const char* fmt, ...) = 0;
 
 	virtual void stra_save_user_data(const char* key, const char* val) {}
 

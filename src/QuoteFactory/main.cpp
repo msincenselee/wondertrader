@@ -5,9 +5,7 @@
 #include "../WtDtCore/WtHelper.h"
 
 #include "../Includes/WTSSessionInfo.hpp"
-#include "../Share/DLLHelper.hpp"
 #include "../Share/JsonToVariant.hpp"
-#include "../Includes/WTSVariant.hpp"
 
 #include "../WTSTools/WTSHotMgr.h"
 #include "../WTSTools/WTSBaseDataMgr.h"
@@ -16,16 +14,15 @@
 
 #include "../WTSUtils/SignalHook.hpp"
 
-#include <boost/asio.hpp>
-
 WTSBaseDataMgr	g_baseDataMgr;
 WTSHotMgr		g_hotMgr;
 boost::asio::io_service g_asyncIO;
 StateMonitor	g_stateMon;
 UDPCaster		g_udpCaster;
 DataManager		g_dataMgr;
+ParserAdapterMgr g_parsers;
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 #include "../Common/mdump.h"
 DWORD g_dwMainThreadId = 0;
 BOOL WINAPI ConsoleCtrlhandler(DWORD dwCtrlType)
@@ -72,47 +69,22 @@ void initParsers(WTSVariant* cfg)
 		if (!cfgItem->getBoolean("active"))
 			continue;
 
-		std::string module = DLLHelper::wrap_module(cfgItem->getCString("module"),"lib");
-		if (!StdFile::exists(module.c_str()))
+		const char* id = cfgItem->getCString("id");
+		// By Wesley @ 2021.12.14
+		// 如果id为空，则生成自动id
+		std::string realid = id;
+		if (realid.empty())
 		{
-			module = WtHelper::get_module_dir();
-			module += "parsers/";
-			module += DLLHelper::wrap_module(cfgItem->getCString("module"), "lib");
+			static uint32_t auto_parserid = 1000;
+			realid = StrUtil::printf("auto_parser_%u", auto_parserid++);
 		}
-		DllHandle libParser = DLLHelper::load_library(module.c_str());
-		if (libParser)
-		{
-			FuncCreateParser pFuncCreateParser = (FuncCreateParser)DLLHelper::get_symbol(libParser, "createParser");
-			if (pFuncCreateParser == NULL)
-			{
-				WTSLogger::error("Initializing of market data parser failed: function createParser not found...");
-			}
 
-			FuncDeleteParser pFuncDeleteParser = (FuncDeleteParser)DLLHelper::get_symbol(libParser, "deleteParser");
-			if (pFuncDeleteParser == NULL)
-			{
-				WTSLogger::error("Initializing of market data parser failed: function deleteParser not found...");
-			}
-
-			if (pFuncCreateParser && pFuncDeleteParser)
-			{
-				WTSParams* params = cfgItem->toParams();
-
-				ParserAdapterPtr adapter(new ParserAdapter(&g_baseDataMgr, &g_dataMgr));
-				adapter->initAdapter(params, pFuncCreateParser, pFuncDeleteParser);
-				ParserAdapterMgr::addAdapter(adapter);
-				params->release();
-			}
-
-		}
-		else
-		{
-			WTSLogger::error("Initializing of market data parser failed: loading module %s failed...", module.c_str());
-		}
+		ParserAdapterPtr adapter(new ParserAdapter(&g_baseDataMgr, &g_dataMgr));
+		adapter->init(realid.c_str(), cfgItem);
+		g_parsers.addAdapter(realid.c_str(), adapter);
 	}
 
-	//WTSLogger::info("一共加载%u个Parser", ParserAdapterMgr::size());
-	WTSLogger::info("%u market data parsers loaded in total", ParserAdapterMgr::size());
+	WTSLogger::info("%u market data parsers loaded in total", g_parsers.size());
 }
 
 void initialize()
@@ -127,23 +99,6 @@ void initialize()
 	WTSVariant* config = WTSVariant::createObject();
 	jsonToVariant(document, config);
 
-	const char* id = config->getCString("id");
-	if (strlen(id) > 0)
-	{
-#ifdef _WIN32
-		HANDLE hHandle = ::CreateEvent(NULL, TRUE, TRUE, id);
-		DWORD dwErr = GetLastError();
-		if (hHandle != NULL && dwErr == ERROR_ALREADY_EXISTS)
-		{
-			ExitProcess(0);
-			return;
-		}
-#else
-		WTSLogger::error("Single instance mode of QuoteFactory is not OK on linux yet.");
-#endif
-	}
-
-
 	//加载市场信息
 	WTSVariant* cfgBF = config->get("basefiles");
 	if (cfgBF->get("session"))
@@ -152,16 +107,36 @@ void initialize()
 		WTSLogger::info("Trading sessions loaded");
 	}
 
-	if (cfgBF->get("commodity"))
+	WTSVariant* cfgItem = cfgBF->get("commodity");
+	if (cfgItem)
 	{
-		g_baseDataMgr.loadCommodities(cfgBF->getCString("commodity"));
-		WTSLogger::info("Commodities loaded");
+		if (cfgItem->type() == WTSVariant::VT_String)
+		{
+			g_baseDataMgr.loadCommodities(cfgItem->asCString());
+		}
+		else if (cfgItem->type() == WTSVariant::VT_Array)
+		{
+			for (uint32_t i = 0; i < cfgItem->size(); i++)
+			{
+				g_baseDataMgr.loadCommodities(cfgItem->get(i)->asCString());
+			}
+		}
 	}
 
-	if (cfgBF->get("contract"))
+	cfgItem = cfgBF->get("contract");
+	if (cfgItem)
 	{
-		g_baseDataMgr.loadContracts(cfgBF->getCString("contract"));
-		WTSLogger::info("Contracts loaded");
+		if (cfgItem->type() == WTSVariant::VT_String)
+		{
+			g_baseDataMgr.loadContracts(cfgItem->asCString());
+		}
+		else if (cfgItem->type() == WTSVariant::VT_Array)
+		{
+			for (uint32_t i = 0; i < cfgItem->size(); i++)
+			{
+				g_baseDataMgr.loadContracts(cfgItem->get(i)->asCString());
+			}
+		}
 	}
 
 	if (cfgBF->get("holiday"))
@@ -193,6 +168,7 @@ void initialize()
 	config->release();
 
 	g_asyncIO.post([](){
+		g_parsers.run();
 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		g_stateMon.run();
 	});
@@ -202,7 +178,7 @@ int main()
 {
 	WTSLogger::init();
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
 	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
 	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);

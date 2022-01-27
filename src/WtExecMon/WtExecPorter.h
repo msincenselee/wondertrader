@@ -2,13 +2,6 @@
 #include <stdint.h>
 #include "../Includes/WTSMarcos.h"
 
-
-#ifdef _WIN32
-#	define PORTER_FLAG _cdecl
-#else
-#	define PORTER_FLAG __attribute__((_cdecl))
-#endif
-
 typedef const char*			WtString;
 
 #ifdef __cplusplus

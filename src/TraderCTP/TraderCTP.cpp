@@ -8,86 +8,22 @@
  * \brief 
  */
 #include "TraderCTP.h"
+
 #include "../Includes/WTSError.hpp"
 #include "../Includes/WTSContractInfo.hpp"
 #include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/WTSTradeDef.hpp"
 #include "../Includes/WTSDataDef.hpp"
 #include "../Includes/WTSParams.hpp"
-#include "../Share/TimeUtils.hpp"
 #include "../Includes/IBaseDataMgr.h"
-#include "../Share/DLLHelper.hpp"
+
 #include "../Share/decimal.h"
-#include "../Share/StrUtil.hpp"
+#include "../Share/ModuleHelper.hpp"
 
 #include <boost/filesystem.hpp>
 
-void inst_hlp(){}
-
-#ifdef _WIN32
-#include <wtypes.h>
-HMODULE	g_dllModule = NULL;
-
-BOOL APIENTRY DllMain(
-	HANDLE hModule,
-	DWORD  ul_reason_for_call,
-	LPVOID lpReserved
-	)
-{
-	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH:
-		g_dllModule = (HMODULE)hModule;
-		break;
-	}
-	return TRUE;
-}
-#else
-#include <dlfcn.h>
-
-char PLATFORM_NAME[] = "UNIX";
-
-std::string	g_moduleName;
-
-const std::string& getInstPath()
-{
-	static std::string moduleName;
-	if (moduleName.empty())
-	{
-		Dl_info dl_info;
-		dladdr((void *)inst_hlp, &dl_info);
-		moduleName = dl_info.dli_fname;
-	}
-
-	return moduleName;
-}
-#endif
-
-std::string getBinDir()
-{
-	static std::string _bin_dir;
-	if (_bin_dir.empty())
-	{
-
-
-#ifdef _WIN32
-		char strPath[MAX_PATH];
-		GetModuleFileName(g_dllModule, strPath, MAX_PATH);
-
-		_bin_dir = StrUtil::standardisePath(strPath, false);
-#else
-		_bin_dir = getInstPath();
-#endif
-		boost::filesystem::path p(_bin_dir);
-		_bin_dir = p.branch_path().string() + "/";
-	}
-
-	return _bin_dir;
-}
-
 const char* ENTRUST_SECTION = "entrusts";
 const char* ORDER_SECTION = "orders";
-
 
 uint32_t strToTime(const char* strTime)
 {
@@ -409,6 +345,8 @@ int TraderCTP::orderInsert(WTSEntrust* entrust)
 	}
 
 	WTSContractInfo* ct = m_bdMgr->getContract(entrust->getCode(), entrust->getExchg());
+	if (ct == NULL)
+		return -1;
 
 	///ÓÃ»§´úÂë
 	//	TThostFtdcUserIDType	UserID;
@@ -593,6 +531,30 @@ int TraderCTP::queryTrades()
 	return 0;
 }
 
+int TraderCTP::querySettlement(uint32_t uDate)
+{
+	if (m_pUserAPI == NULL || m_wrapperState != WS_ALLREADY)
+	{
+		return -1;
+	}
+
+	m_strSettleInfo.clear();
+	StdUniqueLock lock(m_mtxQuery);
+	m_queQuery.push([this, uDate]() {
+		CThostFtdcQrySettlementInfoField req;
+		memset(&req, 0, sizeof(req));
+		strcpy(req.BrokerID, m_strBroker.c_str());
+		strcpy(req.InvestorID, m_strUser.c_str());
+		sprintf(req.TradingDay, "%u", uDate);
+
+		m_pUserAPI->ReqQrySettlementInfo(&req, genRequestID());
+	});
+
+	//triggerQuery();
+
+	return 0;
+}
+
 void TraderCTP::OnFrontConnected()
 {
 	if (m_sink)
@@ -608,7 +570,7 @@ void TraderCTP::OnFrontDisconnected(int nReason)
 
 void TraderCTP::OnHeartBeatWarning(int nTimeLapse)
 {
-
+	m_sink->handleTraderLog(LL_DEBUG, "[TraderCTP][%s-%s] Heartbeating...", m_strBroker.c_str(), m_strUser.c_str());
 }
 
 void TraderCTP::OnRspAuthenticate(CThostFtdcRspAuthenticateField *pRspAuthenticateField, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
@@ -619,7 +581,7 @@ void TraderCTP::OnRspAuthenticate(CThostFtdcRspAuthenticateField *pRspAuthentica
 	}
 	else
 	{
-		m_sink->handleTraderLog(LL_INFO, "[TraderCTP][%s-%s] Authentiation failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
+		m_sink->handleTraderLog(LL_ERROR, "[TraderCTP][%s-%s] Authentiation failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
 		m_wrapperState = WS_LOGINFAILED;
 
 		if (m_sink)
@@ -671,7 +633,7 @@ void TraderCTP::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin, CThos
 	}
 	else
 	{
-		m_sink->handleTraderLog(LL_INFO, "[TraderCTP][%s-%s] Login failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
+		m_sink->handleTraderLog(LL_ERROR, "[TraderCTP][%s-%s] Login failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
 		m_wrapperState = WS_LOGINFAILED;
 
 		if (m_sink)
@@ -825,9 +787,9 @@ void TraderCTP::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInves
 			m_mapPosition = PositionMap::create();
 
 		WTSContractInfo* contract = m_bdMgr->getContract(pInvestorPosition->InstrumentID, pInvestorPosition->ExchangeID);
-		WTSCommodityInfo* commInfo = m_bdMgr->getCommodity(contract);
 		if (contract)
 		{
+			WTSCommodityInfo* commInfo = m_bdMgr->getCommodity(contract);
 			std::string key = StrUtil::printf("%s-%d", pInvestorPosition->InstrumentID, pInvestorPosition->PosiDirection);
 			WTSPositionItem* pos = (WTSPositionItem*)m_mapPosition->get(key);
 			if(pos == NULL)
@@ -871,11 +833,11 @@ void TraderCTP::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInves
 						int availNew = pInvestorPosition->Position;
 						if (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Long)
 						{
-							availNew -= pInvestorPosition->LongFrozen;
+							availNew -= pInvestorPosition->ShortFrozen;
 						}
 						else
 						{
-							availNew -= pInvestorPosition->ShortFrozen;
+							availNew -= pInvestorPosition->LongFrozen;
 						}
 						if (availNew < 0)
 							availNew = 0;
@@ -886,11 +848,11 @@ void TraderCTP::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInves
 						int availPre = pInvestorPosition->Position;
 						if (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Long)
 						{
-							availPre -= pInvestorPosition->LongFrozen;
+							availPre -= pInvestorPosition->ShortFrozen;
 						}
 						else
 						{
-							availPre -= pInvestorPosition->ShortFrozen;
+							availPre -= pInvestorPosition->LongFrozen;
 						}
 						if (availPre < 0)
 							availPre = 0;
@@ -902,11 +864,11 @@ void TraderCTP::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInves
 					int availNew = pInvestorPosition->TodayPosition;
 					if (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Long)
 					{
-						availNew -= pInvestorPosition->LongFrozen;
+						availNew -= pInvestorPosition->ShortFrozen;
 					}
 					else
 					{
-						availNew -= pInvestorPosition->ShortFrozen;
+						availNew -= pInvestorPosition->LongFrozen;
 					}
 					if (availNew < 0)
 						availNew = 0;
@@ -955,6 +917,25 @@ void TraderCTP::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInves
 		}
 
 		ayPos->release();
+	}
+}
+
+void TraderCTP::OnRspQrySettlementInfo(CThostFtdcSettlementInfoField *pSettlementInfo, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
+{
+	if (bIsLast)
+	{
+		m_bInQuery = false;
+		//triggerQuery();
+	}
+
+	if (!IsErrorRspInfo(pRspInfo) && pSettlementInfo)
+	{
+		m_strSettleInfo += pSettlementInfo->Content;
+	}
+
+	if (bIsLast && !m_strSettleInfo.empty())
+	{
+		m_sink->onRspSettlementInfo(atoi(pSettlementInfo->TradingDay), m_strSettleInfo.c_str());
 	}
 }
 

@@ -119,6 +119,7 @@
     <ClInclude Include="..\FasterLibs\tsl\robin_hash.h" />
     <ClInclude Include="..\FasterLibs\tsl\robin_map.h" />
     <ClInclude Include="..\FasterLibs\tsl\robin_set.h" />
+    <ClInclude Include="..\Includes\ExecuteDefs.h" />
     <ClInclude Include="..\Includes\FasterDefs.h" />
     <ClInclude Include="..\Includes\IBaseDataMgr.h" />
     <ClInclude Include="..\Includes\ICtaStraCtx.h" />
@@ -126,7 +127,6 @@
     <ClInclude Include="..\Includes\IDataManager.h" />
     <ClInclude Include="..\Includes\IDataReader.h" />
     <ClInclude Include="..\Includes\IDataWriter.h" />
-    <ClInclude Include="..\Includes\IExpFactory.h" />
     <ClInclude Include="..\Includes\IHftStraCtx.h" />
     <ClInclude Include="..\Includes\IHotMgr.h" />
     <ClInclude Include="..\Includes\IParserApi.h" />
@@ -137,7 +137,6 @@
     <ClInclude Include="..\Includes\WTSContractInfo.hpp" />
     <ClInclude Include="..\Includes\WTSDataDef.hpp" />
     <ClInclude Include="..\Includes\WTSError.hpp" />
-    <ClInclude Include="..\Includes\WTSExpressData.hpp" />
     <ClInclude Include="..\Includes\WTSHotItem.hpp" />
     <ClInclude Include="..\Includes\WTSMarcos.h" />
     <ClInclude Include="..\Includes\WTSObject.hpp" />
@@ -159,6 +158,7 @@
     <ClInclude Include="IniFile.hpp" />
     <ClInclude Include="IniHelper.hpp" />
     <ClInclude Include="JsonToVariant.hpp" />
+    <ClInclude Include="ModuleHelper.hpp" />
     <ClInclude Include="StdUtils.hpp" />
     <ClInclude Include="threadpool.hpp" />
     <ClInclude Include="threadpool\detail\future.hpp" />

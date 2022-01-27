@@ -21,6 +21,11 @@ class WTSOrdDtlData;
 class WTSTransData;
 class WTSVariant;
 class IBaseDataMgr;
+struct WTSBarStruct;
+struct WTSTickStruct;
+struct WTSOrdDtlStruct;
+struct WTSOrdQueStruct;
+struct WTSTransStruct;
 
 class IDataWriterSink
 {
@@ -50,14 +55,32 @@ public:
 	virtual void outputWriterLog(WTSLogLevel ll, const char* format, ...) = 0;
 };
 
+class IHisDataDumper
+{
+public:
+	virtual bool dumpHisBars(const char* stdCode, const char* period, WTSBarStruct* bars, uint32_t count) = 0;
+	virtual bool dumpHisTicks(const char* stdCode, uint32_t uDate, WTSTickStruct* ticks, uint32_t count) = 0;
+
+	virtual bool dumpHisOrdQue(const char* stdCode, uint32_t uDate, WTSOrdQueStruct* items, uint32_t count) { return false; }
+	virtual bool dumpHisOrdDtl(const char* stdCode, uint32_t uDate, WTSOrdDtlStruct* items, uint32_t count) { return false; }
+	virtual bool dumpHisTrans(const char* stdCode, uint32_t uDate, WTSTransStruct* items, uint32_t count) { return false; }
+};
+
+typedef faster_hashmap<std::string, IHisDataDumper*> ExtDumpers;
+
 /*
  *	数据落地接口
  */
 class IDataWriter
 {
 public:
-	virtual bool init(WTSVariant* params, IDataWriterSink* sink) = 0;
+	IDataWriter():_sink(NULL){}
+
+	virtual bool init(WTSVariant* params, IDataWriterSink* sink) { _sink = sink; return true; }
+
 	virtual void release() = 0;
+
+	void	add_ext_dumper(const char* id, IHisDataDumper* dumper) { _dumpers[id] = dumper; }
 
 public:
 	virtual bool writeTick(WTSTickData* curTick, bool bNeedSlice = true) = 0;
@@ -73,6 +96,10 @@ public:
 	virtual bool isSessionProceeded(const char* sid) = 0;
 
 	virtual WTSTickData* getCurTick(const char* code, const char* exchg = "") = 0;
+
+protected:
+	ExtDumpers			_dumpers;
+	IDataWriterSink*	_sink;
 };
 
 NS_OTP_END

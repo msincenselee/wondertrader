@@ -22,6 +22,8 @@
 #include "../Share/StdUtils.hpp"
 #include "../Share/DLLHelper.hpp"
 
+#include "../Share/BoostFile.hpp"
+
 
 NS_OTP_BEGIN
 class WTSSessionInfo;
@@ -41,6 +43,8 @@ class WTSPortFundInfo;
 
 class WtDataManager;
 class TraderAdapterMgr;
+
+class EventNotifier;
 
 typedef std::function<void()>	TaskItem;
 
@@ -136,7 +140,7 @@ public:
 	virtual void handle_push_quote(WTSTickData* newTick, uint32_t hotFlag) override;
 
 public:
-	virtual void init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr);
+	virtual void init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr, EventNotifier* notifier);
 
 	virtual void run(bool bAsync = false) = 0;
 
@@ -156,9 +160,9 @@ protected:
 
 	void		save_datas();
 
-	void		append_signal(const char* stdCode, double qty);
+	void		append_signal(const char* stdCode, double qty, bool bStandBy);
 
-	void		do_set_position(const char* stdCode, double qty);
+	void		do_set_position(const char* stdCode, double qty, double curPx = -1);
 
 	void		task_loop();
 
@@ -167,6 +171,12 @@ protected:
 	void		update_fund_dynprofit();
 
 	bool		init_riskmon(WTSVariant* cfg);
+
+private:
+	void		init_outputs();
+	inline void	log_trade(const char* stdCode, bool isLong, bool isOpen, uint64_t curTime, double price, double qty, double fee = 0.0);
+	inline void	log_close(const char* stdCode, bool isLong, uint64_t openTime, double openpx, uint64_t closeTime, double closepx, double qty,
+		double profit, double totalprofit = 0);
 
 
 protected:
@@ -208,6 +218,7 @@ protected:
 	//////////////////////////////////////////////////////////////////////////
 	//信号过滤器
 	WtFilterMgr		_filter_mgr;
+	EventNotifier*	_notifier;
 
 	//////////////////////////////////////////////////////////////////////////
 	//手续费模板
@@ -291,5 +302,8 @@ protected:
 	uint32_t		_risk_date;
 
 	TraderAdapterMgr*	_adapter_mgr;
+
+	BoostFilePtr	_trade_logs;
+	BoostFilePtr	_close_logs;
 };
 NS_OTP_END

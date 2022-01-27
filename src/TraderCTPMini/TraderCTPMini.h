@@ -17,8 +17,7 @@
 #include "../Includes/ITraderApi.h"
 #include "../Includes/WTSCollection.hpp"
 
-// CTP2mini v1.5
-#include "./ThostTraderApi/ThostFtdcTraderApi.h"
+#include "../API/CTPMini1.5.8/ThostFtdcTraderApi.h"
 
 #include "../Share/IniHelper.hpp"
 #include "../Share/StdUtils.hpp"
@@ -192,6 +191,7 @@ protected:
 	WTSArray*					m_ayTrades;
 	WTSArray*					m_ayOrders;
 	WTSArray*					m_ayPosDetail;
+	WTSArray*					m_ayFunds;
 
 	IBaseDataMgr*				m_bdMgr;
 
@@ -211,4 +211,3 @@ protected:
 
 	IniHelper		m_iniHelper;
 };
-

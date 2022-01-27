@@ -13,58 +13,16 @@
 #include "../WtCore/WtHelper.h"
 #include "../WTSTools/WTSLogger.h"
 #include "../Includes/WTSTradeDef.hpp"
-
-#include "../Share/decimal.h"
-#include "../Share/StrUtil.hpp"
 #include "../Includes/WTSVersion.h"
 
-std::string g_bin_dir;
-
-void inst_hlp() {}
-
 #ifdef _WIN32
-#include "../Common/mdump.h"
-#ifdef _WIN64
-char PLATFORM_NAME[] = "X64";
-#else
-char PLATFORM_NAME[] = "WIN32";
+#   ifdef _WIN64
+    char PLATFORM_NAME[] = "X64";
+#   else
+    char PLATFORM_NAME[] = "X86";
 #endif
-
-HMODULE	g_dllModule = NULL;
-
-BOOL APIENTRY DllMain(
-	HANDLE hModule,
-	DWORD  ul_reason_for_call,
-	LPVOID lpReserved
-	)
-{
-	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH:
-		g_dllModule = (HMODULE)hModule;
-		break;
-	}
-	return TRUE;
-}
-
 #else
-#include <dlfcn.h>
-
-char PLATFORM_NAME[] = "UNIX";
-
-const std::string& getInstPath()
-{
-	static std::string moduleName;
-	if (moduleName.empty())
-	{
-		Dl_info dl_info;
-		dladdr((void *)inst_hlp, &dl_info);
-		moduleName = dl_info.dli_fname;
-		//printf("1:%s\n", moduleName.c_str());
-	}
-
-	return moduleName;
-}
+    char PLATFORM_NAME[] = "UNIX";
 #endif
 
 WtRtRunner& getRunner()
@@ -73,42 +31,6 @@ WtRtRunner& getRunner()
 	return runner;
 }
 
-const char* getModuleName()
-{
-	static char MODULE_NAME[250] = { 0 };
-	if (strlen(MODULE_NAME) == 0)
-	{
-#ifdef _WIN32
-		GetModuleFileName(g_dllModule, MODULE_NAME, 250);
-		boost::filesystem::path p(MODULE_NAME);
-		strcpy(MODULE_NAME, p.filename().string().c_str());
-#else
-		boost::filesystem::path p(getInstPath());
-		strcpy(MODULE_NAME, p.filename().string().c_str());
-#endif
-	}
-
-	return MODULE_NAME;
-}
-
-const char* getBinDir()
-{
-	if (g_bin_dir.empty())
-	{
-#ifdef _WIN32
-		char strPath[MAX_PATH];
-		GetModuleFileName(g_dllModule, strPath, MAX_PATH);
-
-		g_bin_dir = StrUtil::standardisePath(strPath, false);
-#else
-		g_bin_dir = getInstPath();
-#endif
-		boost::filesystem::path p(g_bin_dir);
-		g_bin_dir = p.branch_path().string() + "/";
-	}
-
-	return g_bin_dir.c_str();
-}
 
 void register_evt_callback(FuncEventCallback cbEvt)
 {
@@ -152,15 +74,32 @@ bool create_ext_executer(const char* id)
 	return getRunner().createExtExecuter(id);
 }
 
+void register_ext_data_loader(FuncLoadFnlBars fnlBarLoader, FuncLoadRawBars rawBarLoader, FuncLoadAdjFactors fctLoader, FuncLoadRawTicks tickLoader)
+{
+	getRunner().registerExtDataLoader(fnlBarLoader, rawBarLoader, fctLoader, tickLoader);
+}
+
+void feed_raw_bars(WTSBarStruct* bars, WtUInt32 count)
+{
+	getRunner().feedRawBars(bars, count);
+}
+
+void feed_adj_factors(WtString stdCode, WtUInt32* dates, double* factors, WtUInt32 count)
+{
+	getRunner().feedAdjFactors(stdCode, (uint32_t*)dates, factors, count);
+}
+
+void feed_raw_ticks(WTSTickStruct* ticks, WtUInt32 count)
+{
+	WTSLogger::error("API not implemented");
+}
+
 void init_porter(const char* logProfile, bool isFile, const char* genDir)
 {
 	static bool inited = false;
 
 	if (inited)
 		return;
-#ifdef _WIN32
-	CMiniDumper::Enable(getModuleName(), true, WtHelper::getCWD().c_str());
-#endif
 
 	getRunner().init(logProfile, isFile, genDir);
 
@@ -199,11 +138,6 @@ const char* get_version()
 		_ver += __TIME__;
 	}
 	return _ver.c_str();
-}
-
-void dump_bars(const char* stdCode, const char* period, FuncDumpBarsCallback cb, FuncCountDataCallback cbCnt)
-{
-	getRunner().dump_bars(stdCode, period, cb, cbCnt);
 }
 
 void write_log(WtUInt32 level, const char* message, const char* catName)
@@ -292,16 +226,23 @@ WtUInt32 cta_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 		WTSKlineSlice* kData = ctx->stra_get_bars(stdCode, period, barCnt, isMain);
 		if (kData)
 		{
-			uint32_t left = barCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t kcnt = kData->size();
-			for (uint32_t idx = 0; idx < kcnt && left > 0; idx++, left--)
-			{
-				WTSBarStruct* curBar = kData->at(idx);
+			uint32_t left = barCnt;
+			uint32_t reaCnt = min(barCnt, (WtUInt32)kData->size());
 
-				bool isLast = (idx == kcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, period, curBar, isLast);
-				reaCnt += 1;
+			if (kData->get_his_count() > 0)
+			{
+				uint32_t thisCnt = min(left, (uint32_t)kData->get_his_count());
+				left -= thisCnt;
+				reaCnt += thisCnt;
+				cb(cHandle, stdCode, period, kData->get_his_addr(), thisCnt, left == 0);
+			}
+
+			if (left > 0 && kData->get_rt_count() > 0)
+			{
+				uint32_t thisCnt = min(left, (uint32_t)kData->get_rt_count());
+				left -= thisCnt;
+				reaCnt += thisCnt;
+				cb(cHandle, stdCode, period, kData->get_rt_addr(), thisCnt, true);
 			}
 
 			kData->release();
@@ -318,7 +259,7 @@ WtUInt32 cta_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 	}
 }
 
-WtUInt32	cta_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, bool isMain, FuncGetTicksCallback cb)
+WtUInt32	cta_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetTicksCallback cb)
 {
 	CtaContextPtr ctx = getRunner().getCtaContext(cHandle);
 	if (ctx == NULL)
@@ -328,19 +269,10 @@ WtUInt32	cta_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt
 		WTSTickSlice* tData = ctx->stra_get_ticks(stdCode, tickCnt);
 		if (tData)
 		{
-			uint32_t left = tickCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t tcnt = tData->size();
-			for (uint32_t idx = 0; idx < tcnt && left > 0; idx++, left--)
-			{
-				WTSTickStruct* curTick = (WTSTickStruct*)tData->at(idx);
-				bool isLast = (idx == tcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, curTick, isLast);
-				reaCnt += 1;
-			}
-
+			uint32_t thisCnt = min(tickCnt, (WtUInt32)tData->size());
+			cb(cHandle, stdCode, (WTSTickStruct*)tData->at(0), thisCnt, true);
 			tData->release();
-			return reaCnt;
+			return thisCnt;
 		}
 		else
 		{
@@ -414,13 +346,13 @@ void cta_get_all_position(CtxHandler cHandle, FuncGetPositionCallback cb)
 	cb(cHandle, "", 0, true);
 }
 
-double cta_get_position(CtxHandler cHandle, const char* stdCode, const char* openTag)
+double cta_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid, const char* openTag)
 {
 	CtaContextPtr ctx = getRunner().getCtaContext(cHandle);
 	if (ctx == NULL)
 		return 0;
 
-	return ctx->stra_get_position(stdCode, openTag);
+	return ctx->stra_get_position(stdCode, bOnlyValid, openTag);
 }
 
 double cta_get_fund_data(CtxHandler cHandle, int flag)
@@ -505,7 +437,7 @@ void cta_log_text(CtxHandler cHandle, const char* message)
 	if (ctx == NULL)
 		return;
 
-	ctx->stra_log_text(message);
+	ctx->stra_log_info(message);
 }
 
 void cta_save_userdata(CtxHandler cHandle, const char* key, const char* val)
@@ -568,7 +500,7 @@ void sel_log_text(CtxHandler cHandle, const char* message)
 	if (ctx == NULL)
 		return;
 
-	ctx->stra_log_text(message);
+	ctx->stra_log_info(message);
 }
 
 double sel_get_price(const char* stdCode)
@@ -602,13 +534,13 @@ void sel_get_all_position(CtxHandler cHandle, FuncGetPositionCallback cb)
 	cb(cHandle, "", 0, true);
 }
 
-double sel_get_position(CtxHandler cHandle, const char* stdCode, const char* openTag)
+double sel_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid, const char* openTag)
 {
 	SelContextPtr ctx = getRunner().getSelContext(cHandle);
 	if (ctx == NULL)
 		return 0;
 
-	return ctx->stra_get_position(stdCode, openTag);
+	return ctx->stra_get_position(stdCode, bOnlyValid, openTag);
 }
 
 WtUInt32 sel_get_bars(CtxHandler cHandle, const char* stdCode, const char* period, WtUInt32 barCnt, FuncGetBarsCallback cb)
@@ -621,16 +553,23 @@ WtUInt32 sel_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 		WTSKlineSlice* kData = ctx->stra_get_bars(stdCode, period, barCnt);
 		if (kData)
 		{
-			uint32_t left = barCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t kcnt = kData->size();
-			for (uint32_t idx = 0; idx < kcnt && left > 0; idx++, left--)
-			{
-				WTSBarStruct* curBar = kData->at(idx);
+			uint32_t left = barCnt;
+			uint32_t reaCnt = min(barCnt, (WtUInt32)kData->size());
 
-				bool isLast = (idx == kcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, period, curBar, isLast);
-				reaCnt += 1;
+			if (kData->get_his_count() > 0)
+			{
+				uint32_t thisCnt = min(left, (uint32_t)kData->get_his_count());
+				left -= thisCnt;
+				reaCnt += thisCnt;
+				cb(cHandle, stdCode, period, kData->get_his_addr(), thisCnt, left == 0);
+			}
+
+			if (left > 0 && kData->get_rt_count() > 0)
+			{
+				uint32_t thisCnt = min(left, (uint32_t)kData->get_rt_count());
+				left -= thisCnt;
+				reaCnt += thisCnt;
+				cb(cHandle, stdCode, period, kData->get_rt_addr(), thisCnt, true);
 			}
 
 			kData->release();
@@ -657,7 +596,7 @@ void sel_set_position(CtxHandler cHandle, const char* stdCode, double qty, const
 	ctx->stra_set_position(stdCode, qty, userTag);
 }
 
-WtUInt32	sel_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, bool isMain, FuncGetTicksCallback cb)
+WtUInt32	sel_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetTicksCallback cb)
 {
 	SelContextPtr ctx = getRunner().getSelContext(cHandle);
 	if (ctx == NULL)
@@ -667,19 +606,10 @@ WtUInt32	sel_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt
 		WTSTickSlice* tData = ctx->stra_get_ticks(stdCode, tickCnt);
 		if (tData)
 		{
-			uint32_t left = tickCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t tcnt = tData->size();
-			for (uint32_t idx = 0; idx < tcnt && left > 0; idx++, left--)
-			{
-				WTSTickStruct* curTick = (WTSTickStruct*)tData->at(idx);
-				bool isLast = (idx == tcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, curTick, isLast);
-				reaCnt += 1;
-			}
-
+			uint32_t thisCnt = min(tickCnt, (WtUInt32)tData->size());
+			cb(cHandle, stdCode, (WTSTickStruct*)tData->at(0), thisCnt, true);
 			tData->release();
-			return reaCnt;
+			return thisCnt;
 		}
 		else
 		{
@@ -708,13 +638,13 @@ CtxHandler create_hft_context(const char* name, const char* trader, bool agent)
 	return getRunner().createHftContext(name, trader, agent);
 }
 
-double hft_get_position(CtxHandler cHandle, const char* stdCode)
+double hft_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid)
 {
 	HftContextPtr ctx = getRunner().getHftContext(cHandle);
 	if (ctx == NULL)
 		return 0;
 
-	return ctx->stra_get_position(stdCode);
+	return ctx->stra_get_position(stdCode, bOnlyValid);
 }
 
 double hft_get_position_profit(CtxHandler cHandle, const char* stdCode)
@@ -767,16 +697,23 @@ WtUInt32 hft_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 		WTSKlineSlice* kData = ctx->stra_get_bars(stdCode, period, barCnt);
 		if (kData)
 		{
-			uint32_t left = barCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t kcnt = kData->size();
-			for (uint32_t idx = 0; idx < kcnt && left > 0; idx++, left--)
-			{
-				WTSBarStruct* curBar = kData->at(idx);
+			uint32_t left = barCnt;
+			uint32_t reaCnt = min(barCnt, (WtUInt32)kData->size());
 
-				bool isLast = (idx == kcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, period, curBar, isLast);
-				reaCnt += 1;
+			if (kData->get_his_count() > 0)
+			{
+				uint32_t thisCnt = min(left, (uint32_t)kData->get_his_count());
+				left -= thisCnt;
+				reaCnt += thisCnt;
+				cb(cHandle, stdCode, period, kData->get_his_addr(), thisCnt, left == 0);
+			}
+
+			if (left > 0 && kData->get_rt_count() > 0)
+			{
+				uint32_t thisCnt = min(left, (uint32_t)kData->get_rt_count());
+				left -= thisCnt;
+				reaCnt += thisCnt;
+				cb(cHandle, stdCode, period, kData->get_rt_addr(), thisCnt, true);
 			}
 
 			kData->release();
@@ -803,19 +740,10 @@ WtUInt32 hft_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt
 		WTSTickSlice* tData = ctx->stra_get_ticks(stdCode, tickCnt);
 		if (tData)
 		{
-			uint32_t left = tickCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t tcnt = tData->size();
-			for (uint32_t idx = 0; idx < tcnt && left > 0; idx++, left--)
-			{
-				WTSTickStruct* curTick = (WTSTickStruct*)tData->at(idx);
-				bool isLast = (idx == tcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, curTick, isLast);
-				reaCnt += 1;
-			}
-
+			uint32_t thisCnt = min(tickCnt, (WtUInt32)tData->size());
+			cb(cHandle, stdCode, (WTSTickStruct*)tData->at(0), thisCnt, true);
 			tData->release();
-			return reaCnt;
+			return thisCnt;
 		}
 		else
 		{
@@ -828,29 +756,20 @@ WtUInt32 hft_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt
 	}
 }
 
-WtUInt32 hft_get_ordque(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetOrdQueCallback cb)
+WtUInt32 hft_get_ordque(CtxHandler cHandle, const char* stdCode, WtUInt32 itemCnt, FuncGetOrdQueCallback cb)
 {
 	HftContextPtr ctx = getRunner().getHftContext(cHandle);
 	if (ctx == NULL)
 		return 0;
 	try
 	{
-		WTSOrdQueSlice* dataSlice = ctx->stra_get_order_queue(stdCode, tickCnt);
+		WTSOrdQueSlice* dataSlice = ctx->stra_get_order_queue(stdCode, itemCnt);
 		if (dataSlice)
 		{
-			uint32_t left = tickCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t tcnt = dataSlice->size();
-			for (uint32_t idx = 0; idx < tcnt && left > 0; idx++, left--)
-			{
-				WTSOrdQueStruct* curItem = (WTSOrdQueStruct*)dataSlice->at(idx);
-				bool isLast = (idx == tcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, curItem, isLast);
-				reaCnt += 1;
-			}
-
+			uint32_t thisCnt = min(itemCnt, (WtUInt32)dataSlice->size());
+			cb(cHandle, stdCode, (WTSOrdQueStruct*)dataSlice->at(0), thisCnt, true);
 			dataSlice->release();
-			return reaCnt;
+			return thisCnt;
 		}
 		else
 		{
@@ -863,29 +782,20 @@ WtUInt32 hft_get_ordque(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCn
 	}
 }
 
-WtUInt32 hft_get_orddtl(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetOrdDtlCallback cb)
+WtUInt32 hft_get_orddtl(CtxHandler cHandle, const char* stdCode, WtUInt32 itemCnt, FuncGetOrdDtlCallback cb)
 {
 	HftContextPtr ctx = getRunner().getHftContext(cHandle);
 	if (ctx == NULL)
 		return 0;
 	try
 	{
-		WTSOrdDtlSlice* dataSlice = ctx->stra_get_order_detail(stdCode, tickCnt);
+		WTSOrdDtlSlice* dataSlice = ctx->stra_get_order_detail(stdCode, itemCnt);
 		if (dataSlice)
 		{
-			uint32_t left = tickCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t tcnt = dataSlice->size();
-			for (uint32_t idx = 0; idx < tcnt && left > 0; idx++, left--)
-			{
-				WTSOrdDtlStruct* curItem = (WTSOrdDtlStruct*)dataSlice->at(idx);
-				bool isLast = (idx == tcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, curItem, isLast);
-				reaCnt += 1;
-			}
-
+			uint32_t thisCnt = min(itemCnt, (WtUInt32)dataSlice->size());
+			cb(cHandle, stdCode, (WTSOrdDtlStruct*)dataSlice->at(0), thisCnt, true);
 			dataSlice->release();
-			return reaCnt;
+			return thisCnt;
 		}
 		else
 		{
@@ -898,29 +808,20 @@ WtUInt32 hft_get_orddtl(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCn
 	}
 }
 
-WtUInt32 hft_get_trans(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetTransCallback cb)
+WtUInt32 hft_get_trans(CtxHandler cHandle, const char* stdCode, WtUInt32 itemCnt, FuncGetTransCallback cb)
 {
 	HftContextPtr ctx = getRunner().getHftContext(cHandle);
 	if (ctx == NULL)
 		return 0;
 	try
 	{
-		WTSTransSlice* dataSlice = ctx->stra_get_transaction(stdCode, tickCnt);
+		WTSTransSlice* dataSlice = ctx->stra_get_transaction(stdCode, itemCnt);
 		if (dataSlice)
 		{
-			uint32_t left = tickCnt + 1;
-			uint32_t reaCnt = 0;
-			uint32_t tcnt = dataSlice->size();
-			for (uint32_t idx = 0; idx < tcnt && left > 0; idx++, left--)
-			{
-				WTSTransStruct* curItem = (WTSTransStruct*)dataSlice->at(idx);
-				bool isLast = (idx == tcnt - 1) || (left == 1);
-				cb(cHandle, stdCode, curItem, isLast);
-				reaCnt += 1;
-			}
-
+			uint32_t thisCnt = min(itemCnt, (WtUInt32)dataSlice->size());
+			cb(cHandle, stdCode, (WTSTransStruct*)dataSlice->at(0), thisCnt, true);
 			dataSlice->release();
-			return reaCnt;
+			return thisCnt;
 		}
 		else
 		{
@@ -939,7 +840,7 @@ void hft_log_text(CtxHandler cHandle, const char* message)
 	if (ctx == NULL)
 		return;
 
-	ctx->stra_log_text(message);
+	ctx->stra_log_info(message);
 }
 
 void hft_sub_ticks(CtxHandler cHandle, const char* stdCode)

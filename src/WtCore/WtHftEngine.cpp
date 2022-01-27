@@ -16,8 +16,6 @@
 #include "WtHelper.h"
 
 #include "../Share/CodeHelper.hpp"
-#include "../Share/StrUtil.hpp"
-#include "../Share/StdUtils.hpp"
 #include "../Includes/WTSVariant.hpp"
 
 #include "../WTSTools/WTSLogger.h"
@@ -52,9 +50,9 @@ WtHftEngine::~WtHftEngine()
 		_cfg->release();
 }
 
-void WtHftEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr)
+void WtHftEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr, EventNotifier* notifier /* = NULL */)
 {
-	WtEngine::init(cfg, bdMgr, dataMgr, hotMgr);
+	WtEngine::init(cfg, bdMgr, dataMgr, hotMgr, notifier);
 
 	_cfg = cfg;
 	_cfg->retain();
@@ -184,7 +182,7 @@ void WtHftEngine::handle_push_transaction(WTSTransData* curTrans)
 void WtHftEngine::sub_order_detail(uint32_t sid, const char* stdCode)
 {
 	std::size_t length = strlen(stdCode);
-	if (stdCode[length - 1] == 'Q')
+	if (stdCode[length - 1] == 'Q' || stdCode[length - 1] == 'H')
 		length--;
 
 	SIDSet& sids = _orddtl_sub_map[std::string(stdCode, length)];
@@ -194,7 +192,7 @@ void WtHftEngine::sub_order_detail(uint32_t sid, const char* stdCode)
 void WtHftEngine::sub_order_queue(uint32_t sid, const char* stdCode)
 {
 	std::size_t length = strlen(stdCode);
-	if (stdCode[length - 1] == 'Q')
+	if (stdCode[length - 1] == 'Q' || stdCode[length - 1] == 'H')
 		length--;
 
 	SIDSet& sids = _ordque_sub_map[std::string(stdCode, length)];
@@ -204,7 +202,7 @@ void WtHftEngine::sub_order_queue(uint32_t sid, const char* stdCode)
 void WtHftEngine::sub_transaction(uint32_t sid, const char* stdCode)
 {
 	std::size_t length = strlen(stdCode);
-	if (stdCode[length - 1] == 'Q')
+	if (stdCode[length - 1] == 'Q' || stdCode[length - 1] == 'H')
 		length--;
 
 	SIDSet& sids = _trans_sub_map[std::string(stdCode, length)];

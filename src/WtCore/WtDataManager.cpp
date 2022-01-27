@@ -14,8 +14,6 @@
 #include "../Share/StrUtil.hpp"
 #include "../Includes/WTSDataDef.hpp"
 #include "../Includes/WTSVariant.hpp"
-#include "../Share/DLLHelper.hpp"
-#include "../Share/StdUtils.hpp"
 
 #include "../WTSTools/WTSLogger.h"
 #include "../WTSTools/WTSDataFactory.h"
@@ -26,6 +24,7 @@ WTSDataFactory g_dataFact;
 WtDataManager::WtDataManager()
 	: _reader(NULL)
 	, _engine(NULL)
+	, _loader(NULL)
 	, _bars_cache(NULL)
 	, _ticks_cache(NULL)
 	, _rt_tick_map(NULL)
@@ -52,7 +51,7 @@ bool WtDataManager::initStore(WTSVariant* cfg)
 
 	std::string module = cfg->getCString("module");
 	if (module.empty())
-		module = WtHelper::getInstDir() + DLLHelper::wrap_module("WtDataReader");
+		module = WtHelper::getInstDir() + DLLHelper::wrap_module("WtDataStorage");
 	else
 		module = WtHelper::getInstDir() + DLLHelper::wrap_module(module.c_str());
 
@@ -79,7 +78,7 @@ bool WtDataManager::initStore(WTSVariant* cfg)
 		return false;
 	}
 
-	_reader->init(cfg, this);
+	_reader->init(cfg, this, _loader);
 
 	return true;
 }
@@ -95,6 +94,8 @@ void WtDataManager::on_all_bar_updated(uint32_t updateTime)
 {
 	if (_bar_notifies.empty())
 		return;
+
+	WTSLogger::debug("All bars updated, on_bar will be triggered");
 
 	for (const NotifyItem& item : _bar_notifies)
 	{

@@ -10,7 +10,7 @@
 #pragma once
 #include <stdint.h>
 #include <sys/timeb.h>
-#ifdef _WIN32
+#ifdef _MSC_VER
 #include <time.h>
 #else
 #include <sys/time.h>
@@ -97,6 +97,19 @@ public:
 		yyyymmdd.append(month);
 		yyyymmdd.append(day);
 		return yyyymmdd;
+	}
+
+	static inline uint64_t getYYYYMMDDhhmmss()
+	{
+		timeb now;
+		ftime(&now);
+
+		tm * tNow = localtime(&(now.time));
+
+		uint64_t date = (tNow->tm_year + 1900) * 10000 + (tNow->tm_mon + 1) * 100 + tNow->tm_mday;
+
+		uint64_t time = tNow->tm_hour * 10000 + tNow->tm_min * 100 + tNow->tm_sec;
+		return date * 1000000 + time;
 	}
 
 	static inline void getDateTime(uint32_t &date, uint32_t &time)

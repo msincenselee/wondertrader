@@ -15,16 +15,17 @@ NS_OTP_BEGIN
 /*
  *	合约分类
  */
+//从CTP复制过来的
 typedef enum tagContractCategory
 {
 	CC_Stock,			//股票
 	CC_Future,			//期货
-	CC_FutOption,		//期货期权
+	CC_FutOption,		//期货期权，商品期权是这个分类
 	CC_Combination,		//组合
 	CC_Spot,			//即期
 	CC_EFP,				//期转现
-	CC_SpotOption,		//现货期权
-	CC_ETFOption		//个股期权
+	CC_SpotOption,		//现货期权，股指期权是这个分类
+	CC_ETFOption		//个股期权，ETF期权是这个分类
 } ContractCategory;
 
 /*
@@ -47,6 +48,16 @@ typedef enum tagCoverMode
 	CM_UNFINISHED,		//平未了结的
 	CM_None			//不区分开平
 } CoverMode;
+
+/*
+ *	交易模式
+ */
+typedef enum tagTradingMode
+{
+	TM_Both,	//多空都支持
+	TM_Long,	//只能做多
+	TM_LongT1	//做多T+1
+} TradingMode;
 
 /*
 *	价格模式
@@ -275,33 +286,6 @@ typedef enum tagTraderEvent
 	WTE_Login,						//登录
 	WTE_Logout						//注销
 }WTSTraderEvent;
-
-/*
- *	指标类型
- */
-typedef enum tagExpressType
-{
-	WET_Unique,
-	WET_SubExp
-} WTSExpressType;
-
-/*
- *	指标线类型
- */
-typedef enum tagExpressLineType
-{
-	WELT_Polyline,	//线条	
-	WELT_VolStick,	//量柱
-	WELT_StickLine,	//柱状线
-	WELT_AStickLine,	//柱状线绝对值
-} WTSExpressLineType;
-
-//指标线风格
-typedef enum tagExpLineStyle
-{
-	ELS_LINE_VISIBLE = 0x00000001,	//线条可见
-	ELS_TITLE_VISIBLE = 0x00000002	//标题可见
-} ExpLineStyle;
 
 /*
  *	买卖方向类型

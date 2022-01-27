@@ -1,18 +1,32 @@
 #include "WtExecRunner.h"
 
 #include "../WtCore/WtHelper.h"
-#include "../WtCore/WtLocalExecuter.h"
 #include "../WTSTools/WTSLogger.h"
 
 #include "../Includes/WTSContractInfo.hpp"
 #include "../Share/CodeHelper.hpp"
 #include "../Share/JsonToVariant.hpp"
-#include "../Share/StdUtils.hpp"
+#include "../Share/ModuleHelper.hpp"
 #include "../Share/TimeUtils.hpp"
-
 #include "../WTSUtils/SignalHook.hpp"
 
-extern const char* getBinDir();
+#ifdef _MSC_VER
+#include "../Common/mdump.h"
+#include <boost/filesystem.hpp>
+const char* getModuleName()
+{
+	static char MODULE_NAME[250] = { 0 };
+	if (strlen(MODULE_NAME) == 0)
+	{
+
+		GetModuleFileName(g_dllModule, MODULE_NAME, 250);
+		boost::filesystem::path p(MODULE_NAME);
+		strcpy(MODULE_NAME, p.filename().string().c_str());
+	}
+
+	return MODULE_NAME;
+}
+#endif
 
 WtExecRunner::WtExecRunner()
 {
@@ -23,6 +37,10 @@ WtExecRunner::WtExecRunner()
 
 bool WtExecRunner::init(const char* logCfg /* = "logcfgexec.json" */, bool isFile /* = true */)
 {
+#ifdef _MSC_VER
+	CMiniDumper::Enable(getModuleName(), true, WtHelper::getCWD().c_str());
+#endif
+
 	if(isFile)
 	{
 		std::string path = WtHelper::getCWD() + logCfg;
@@ -60,16 +78,36 @@ bool WtExecRunner::config(const char* cfgFile, bool isFile /* = true */)
 		WTSLogger::info("Trading sessions loaded");
 	}
 
-	if (cfgBF->get("commodity"))
+	WTSVariant* cfgItem = cfgBF->get("commodity");
+	if (cfgItem)
 	{
-		_bd_mgr.loadCommodities(cfgBF->getCString("commodity"));
-		WTSLogger::info("Commodities loaded");
+		if (cfgItem->type() == WTSVariant::VT_String)
+		{
+			_bd_mgr.loadCommodities(cfgItem->asCString());
+		}
+		else if (cfgItem->type() == WTSVariant::VT_Array)
+		{
+			for (uint32_t i = 0; i < cfgItem->size(); i++)
+			{
+				_bd_mgr.loadCommodities(cfgItem->get(i)->asCString());
+			}
+		}
 	}
 
-	if (cfgBF->get("contract"))
+	cfgItem = cfgBF->get("contract");
+	if (cfgItem)
 	{
-		_bd_mgr.loadContracts(cfgBF->getCString("contract"));
-		WTSLogger::info("Contracts loaded");
+		if (cfgItem->type() == WTSVariant::VT_String)
+		{
+			_bd_mgr.loadContracts(cfgItem->asCString());
+		}
+		else if (cfgItem->type() == WTSVariant::VT_Array)
+		{
+			for (uint32_t i = 0; i < cfgItem->size(); i++)
+			{
+				_bd_mgr.loadContracts(cfgItem->get(i)->asCString());
+			}
+		}
 	}
 
 	if (cfgBF->get("holiday"))
@@ -124,7 +162,7 @@ bool WtExecRunner::config(const char* cfgFile, bool isFile /* = true */)
 }
 
 
-void WtExecRunner::run(bool bAsync /* = false */)
+void WtExecRunner::run()
 {
 	try
 	{
@@ -154,10 +192,18 @@ bool WtExecRunner::initParsers(WTSVariant* cfgParser)
 
 		const char* id = cfgItem->getCString("id");
 
-		ParserAdapterPtr adapter(new ParserAdapter);
-		adapter->init(id, cfgItem, this, &_bd_mgr, &_hot_mgr);
+		// By Wesley @ 2021.12.14
+		// 如果id为空，则生成自动id
+		std::string realid = id;
+		if (realid.empty())
+		{
+			static uint32_t auto_parserid = 1000;
+			realid = StrUtil::printf("auto_parser_%u", auto_parserid++);
+		}
 
-		_parsers.addAdapter(id, adapter);
+		ParserAdapterPtr adapter(new ParserAdapter);
+		adapter->init(realid.c_str(), cfgItem, this, &_bd_mgr, &_hot_mgr);
+		_parsers.addAdapter(realid.c_str(), adapter);
 
 		count++;
 	}
@@ -191,9 +237,24 @@ bool WtExecRunner::initExecuters()
 		if (!executer->init(cfgItem))
 			return false;
 
-		TraderAdapterPtr trader = _traders.getAdapter(cfgItem->getCString("trader"));
-		executer->setTrader(trader.get());
-		trader->addSink(executer.get());
+		const char* tid = cfgItem->getCString("trader");
+		if (strlen(tid) == 0)
+		{
+			WTSLogger::error("No Trader configured for Executer %s", id);
+		}
+		else
+		{
+			TraderAdapterPtr trader = _traders.getAdapter(tid);
+			if (trader)
+			{
+				executer->setTrader(trader.get());
+				trader->addSink(executer.get());
+			}
+			else
+			{
+				WTSLogger::error("Trader %s not exists, cannot configured for executer %s", tid, id);
+			}
+		}
 
 		_exe_mgr.add_executer(executer);
 

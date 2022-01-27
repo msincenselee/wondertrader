@@ -13,7 +13,6 @@
 
 #include <boost/bind.hpp>
 
-
 #define UDP_MSG_SUBSCRIBE	0x100
 #define UDP_MSG_PUSHTICK	0x200
 #define UDP_MSG_PUSHORDQUE	0x201	//Î¯ÍÐ¶ÓÁÐ
@@ -180,6 +179,9 @@ void ParserUDP::subscribe()
 	}
 
 	do_send();
+
+	if (_sink)
+		_sink->handleParserLog(LL_INFO, "[ParserUDP] Ticks subscribing sent");
 }
 
 void ParserUDP::do_send()
@@ -332,7 +334,7 @@ void ParserUDP::extract_buffer(uint32_t length, bool isBroad /* = true */)
 		static uint32_t recv_cnt = 0;
 		recv_cnt++;
 		if (recv_cnt % 10000 == 0 && _sink)
-			_sink->handleParserLog(LL_INFO, "[ParserUDP] %u ticks received in total", recv_cnt);
+			_sink->handleParserLog(LL_DEBUG, "[ParserUDP] %u ticks received in total", recv_cnt);
 	}
 	else if (header->_type == UDP_MSG_PUSHORDDTL)
 	{
@@ -346,7 +348,7 @@ void ParserUDP::extract_buffer(uint32_t length, bool isBroad /* = true */)
 		static uint32_t recv_cnt = 0;
 		recv_cnt++;
 		if (recv_cnt % 10000 == 0 && _sink)
-			_sink->handleParserLog(LL_INFO, "[ParserUDP] %u order details received in total", recv_cnt);
+			_sink->handleParserLog(LL_DEBUG, "[ParserUDP] %u order details received in total", recv_cnt);
 	}
 	else if (header->_type == UDP_MSG_PUSHORDQUE)
 	{
@@ -360,7 +362,7 @@ void ParserUDP::extract_buffer(uint32_t length, bool isBroad /* = true */)
 		static uint32_t recv_cnt = 0;
 		recv_cnt++;
 		if (recv_cnt % 10000 == 0 && _sink)
-			_sink->handleParserLog(LL_INFO, "[ParserUDP] %u order queues received in total", recv_cnt);
+			_sink->handleParserLog(LL_DEBUG, "[ParserUDP] %u order queues received in total", recv_cnt);
 	}
 	else if (header->_type == UDP_MSG_PUSHTRANS)
 	{
@@ -374,7 +376,7 @@ void ParserUDP::extract_buffer(uint32_t length, bool isBroad /* = true */)
 		static uint32_t recv_cnt = 0;
 		recv_cnt++;
 		if (recv_cnt % 10000 == 0 && _sink)
-			_sink->handleParserLog(LL_INFO, "[ParserUDP] %u transactions received in total", recv_cnt);
+			_sink->handleParserLog(LL_DEBUG, "[ParserUDP] %u transactions received in total", recv_cnt);
 	}
 }
 

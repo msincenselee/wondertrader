@@ -80,6 +80,66 @@ public:
 	virtual void		reader_log(WTSLogLevel ll, const char* fmt, ...) = 0;
 };
 
+
+/*
+ *	历史数据加载器的回调函数
+ *	@obj	回传用的，原样返回即可
+ *	@key	数据缓存的key
+ *	@bars	K线数据
+ *	@count	K线条数
+ *	@factor	复权因子，最新的复权因子，如果是后复权，则factor不为1.0，如果是前复权，则factor必须为1.0
+ */
+typedef void(*FuncReadBars)(void* obj, WTSBarStruct* bars, uint32_t count);
+
+/*
+ *	加载复权因子回调
+ *	@obj	回传用的，原样返回即可
+ *	@stdCode	合约代码
+ *	@dates	
+ */
+typedef void(*FuncReadFactors)(void* obj, const char* stdCode, uint32_t* dates, double* factors, uint32_t count);
+
+/*
+ *	历史数据加载器
+ */
+class IHisDataLoader
+{
+public:
+	/*
+	 *	加载最终历史K线数据
+	 *	和loadRawHisBars的区别在于，loadFinalHisBars，系统认为是最终所需数据，不在进行加工，例如复权数据、主力合约数据
+	 *	loadRawHisBars是加载未加工的原始数据的接口
+	 *
+	 *	@obj	回传用的，原样返回即可
+	 *	@key	数据缓存的key
+	 *	@stdCode	合约代码
+	 *	@period	K线周期
+	 *	@cb		回调函数
+	 */
+	virtual bool loadFinalHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb) = 0;
+
+	/*
+	 *	加载原始历史K线数据
+	 *
+	 *	@obj	回传用的，原样返回即可
+	 *	@key	数据缓存的key
+	 *	@stdCode	合约代码
+	 *	@period	K线周期
+	 *	@cb		回调函数
+	 */
+	virtual bool loadRawHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb) = 0;
+
+	/*
+	 *	加载全部除权因子
+	 */
+	virtual bool loadAllAdjFactors(void* obj, FuncReadFactors cb) = 0;
+
+	/*
+	 *	加指定合约除权因子
+	 */
+	virtual bool loadAdjFactors(void* obj, const char* stdCode, FuncReadFactors cb) = 0;
+};
+
 /*
  *	@brief	数据读取接口
  *
@@ -98,7 +158,7 @@ public:
 	 *	@param cfg	模块配置项
 	 *	@param sink	模块回调接口
 	 */
-	virtual void init(WTSVariant* cfg, IDataReaderSink* sink){ _sink = sink; }
+	virtual void init(WTSVariant* cfg, IDataReaderSink* sink, IHisDataLoader* loader = NULL) { _sink = sink; _loader = loader; }
 
 	/*
 	 *	@brief	分钟线闭合事件处理接口
@@ -160,8 +220,17 @@ public:
 	 */
 	virtual WTSKlineSlice*	readKlineSlice(const char* stdCode, WTSKlinePeriod period, uint32_t count, uint64_t etime = 0) = 0;
 
+	/*
+	 *	@brief 获取个股指定日期的复权因子
+	 *
+	 *	@param	stdCode	标准品种代码,如SSE.600000
+	 *	@param	date	指定日期,格式yyyyMMdd，默认为0，为0则按当前日期处理
+	 */
+	virtual double		getAdjFactorByDate(const char* stdCode, uint32_t date = 0) { return 1.0; }
+
 protected:
-	IDataReaderSink* _sink;
+	IDataReaderSink*	_sink;
+	IHisDataLoader*		_loader;
 };
 
 //创建数据存储对象

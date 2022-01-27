@@ -15,27 +15,32 @@
 #include <iomanip>
 
 #include "../WtBtCore/ExecMocker.h"
-
-#include "../Includes/WTSDataDef.hpp"
+#include "../WtBtCore/WtHelper.h"
 
 #include "../Share/TimeUtils.hpp"
 #include "../Share/JsonToVariant.hpp"
-#include "../Share/StrUtil.hpp"
-#include "../Share/DLLHelper.hpp"
+#include "../Share/ModuleHelper.hpp"
 
 #include "../WTSTools/WTSLogger.h"
-#include "../WTSTools/WTSCmpHelper.hpp"
-
 #include "../WTSUtils/SignalHook.hpp"
 
-#ifdef _WIN32
-#define my_stricmp _stricmp
-#else
-#define my_stricmp strcasecmp
+#ifdef _MSC_VER
+#include "../Common/mdump.h"
+#include <boost/filesystem.hpp>
+ //这个主要是给MiniDumper用的
+const char* getModuleName()
+{
+	static char MODULE_NAME[250] = { 0 };
+	if (strlen(MODULE_NAME) == 0)
+	{
+		GetModuleFileName(g_dllModule, MODULE_NAME, 250);
+		boost::filesystem::path p(MODULE_NAME);
+		strcpy(MODULE_NAME, p.filename().string().c_str());
+	}
+
+	return MODULE_NAME;
+}
 #endif
-
-extern std::string getBinDir();
-
 
 WtBtRunner::WtBtRunner()
 	: _cta_mocker(NULL)
@@ -44,12 +49,14 @@ WtBtRunner::WtBtRunner()
 	, _cb_cta_init(NULL)
 	, _cb_cta_tick(NULL)
 	, _cb_cta_calc(NULL)
+	, _cb_cta_calc_done(NULL)
 	, _cb_cta_bar(NULL)
 	, _cb_cta_sessevt(NULL)
 
 	, _cb_sel_init(NULL)
 	, _cb_sel_tick(NULL)
 	, _cb_sel_calc(NULL)
+	, _cb_sel_calc_done(NULL)
 	, _cb_sel_bar(NULL)
 	, _cb_sel_sessevt(NULL)
 
@@ -66,6 +73,15 @@ WtBtRunner::WtBtRunner()
 	, _cb_hft_trans(NULL)
 
 	, _cb_hft_sessevt(NULL)
+
+	, _ext_fnl_bar_loader(NULL)
+	, _ext_raw_bar_loader(NULL)
+	, _ext_adj_fct_loader(NULL)
+	, _ext_tick_loader(NULL)
+
+	, _inited(false)
+	, _running(false)
+	, _async(false)
 {
 	install_signal_hooks([](const char* message) {
 		WTSLogger::error(message);
@@ -77,7 +93,127 @@ WtBtRunner::~WtBtRunner()
 {
 }
 
-void WtBtRunner::registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt)
+bool WtBtRunner::loadRawHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb)
+{
+	StdUniqueLock lock(_feed_mtx);
+	if (_ext_raw_bar_loader == NULL)
+		return false;
+
+	_feed_obj = obj;
+	_feeder_bars = cb;
+
+	switch (period)
+	{
+	case KP_DAY:
+        return _ext_raw_bar_loader(stdCode, "d1");
+	case KP_Minute1:
+        return _ext_raw_bar_loader(stdCode, "m1");
+	case KP_Minute5:
+        return _ext_raw_bar_loader(stdCode, "m5");
+	default:
+		{
+			WTSLogger::error("Unsupported period of extended data loader");
+			return false;
+		}
+	}
+}
+
+bool WtBtRunner::loadFinalHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb)
+{
+	StdUniqueLock lock(_feed_mtx);
+	if (_ext_fnl_bar_loader == NULL)
+		return false;
+
+	_feed_obj = obj;
+	_feeder_bars = cb;
+
+	switch (period)
+	{
+	case KP_DAY:
+		return _ext_fnl_bar_loader(stdCode, "d1");
+	case KP_Minute1:
+		return _ext_fnl_bar_loader(stdCode, "m1");
+	case KP_Minute5:
+		return _ext_fnl_bar_loader(stdCode, "m5");
+	default:
+		{
+			WTSLogger::error("Unsupported period of extended data loader");
+			return false;
+		}
+	}
+}
+
+bool WtBtRunner::loadAllAdjFactors(void* obj, FuncReadFactors cb)
+{
+	StdUniqueLock lock(_feed_mtx);
+	if (_ext_adj_fct_loader == NULL)
+		return false;
+
+	_feed_obj = obj;
+	_feeder_fcts = cb;
+
+	return _ext_adj_fct_loader("");
+}
+
+bool WtBtRunner::loadAdjFactors(void* obj, const char* stdCode, FuncReadFactors cb)
+{
+	StdUniqueLock lock(_feed_mtx);
+	if (_ext_adj_fct_loader == NULL)
+		return false;
+
+	_feed_obj = obj;
+	_feeder_fcts = cb;
+
+	return _ext_adj_fct_loader(stdCode);
+}
+
+bool WtBtRunner::loadRawHisTicks(void* obj, const char* stdCode, uint32_t uDate, FuncReadTicks cb)
+{
+	StdUniqueLock lock(_feed_mtx);
+	if (_ext_tick_loader == NULL)
+		return false;
+
+	_feed_obj = obj;
+	_feeder_ticks = cb;
+
+	return _ext_tick_loader(stdCode, uDate);
+}
+
+void WtBtRunner::feedRawBars(WTSBarStruct* bars, uint32_t count)
+{
+	if(_ext_fnl_bar_loader == NULL && _ext_raw_bar_loader == NULL)
+	{
+		WTSLogger::error("Cannot feed bars because of no extented bar loader registered.");
+		return;
+	}
+
+	_feeder_bars(_feed_obj, bars, count);
+}
+
+void WtBtRunner::feedAdjFactors(const char* stdCode, uint32_t* dates, double* factors, uint32_t count)
+{
+	if(_ext_adj_fct_loader == NULL)
+	{
+		WTSLogger::error("Cannot feed adjusting factors because of no extented adjusting factor loader registered.");
+		return;
+	}
+
+	_feeder_fcts(_feed_obj, stdCode, dates, factors, count);
+}
+
+void WtBtRunner::feedRawTicks(WTSTickStruct* ticks, uint32_t count)
+{
+	if (_ext_tick_loader == NULL)
+	{
+		WTSLogger::error("Cannot feed ticks because of no extented tick loader registered.");
+		return;
+	}
+
+	_feeder_ticks(_feed_obj, ticks, count);
+}
+
+void WtBtRunner::registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, 
+	FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone/* = NULL*/)
 {
 	_cb_cta_init = cbInit;
 	_cb_cta_tick = cbTick;
@@ -85,16 +221,21 @@ void WtBtRunner::registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickC
 	_cb_cta_bar = cbBar;
 	_cb_cta_sessevt = cbSessEvt;
 
+	_cb_cta_calc_done = cbCalcDone;
+
 	WTSLogger::info("Callbacks of CTA engine registration done");
 }
 
-void WtBtRunner::registerSelCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt)
+void WtBtRunner::registerSelCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, 
+	FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone/* = NULL*/)
 {
 	_cb_sel_init = cbInit;
 	_cb_sel_tick = cbTick;
 	_cb_sel_calc = cbCalc;
 	_cb_sel_bar = cbBar;
 	_cb_sel_sessevt = cbSessEvt;
+
+	_cb_sel_calc_done = cbCalcDone;
 
 	WTSLogger::info("Callbacks of SEL engine registration done");
 }
@@ -121,24 +262,44 @@ void WtBtRunner::registerHftCallbacks(FuncStraInitCallback cbInit, FuncStraTickC
 	WTSLogger::info("Callbacks of HFT engine registration done");
 }
 
-uint32_t WtBtRunner::initCtaMocker(const char* name, int32_t slippage/* = 0*/)
+uint32_t WtBtRunner::initCtaMocker(const char* name, int32_t slippage /* = 0 */, bool hook /* = false */, bool persistData /* = true */)
 {
-	_cta_mocker = new ExpCtaMocker(&_replayer, name, slippage);
-	_replayer.register_sink(_cta_mocker);
+	if(_cta_mocker)
+	{
+		delete _cta_mocker;
+		_cta_mocker = NULL;
+	}
+
+	_cta_mocker = new ExpCtaMocker(&_replayer, name, slippage, persistData, &_notifier);
+	if(hook) _cta_mocker->install_hook();
+	_replayer.register_sink(_cta_mocker, name);
 	return _cta_mocker->id();
 }
 
-uint32_t WtBtRunner::initHftMocker(const char* name)
+uint32_t WtBtRunner::initHftMocker(const char* name, bool hook/* = false*/)
 {
+	if (_hft_mocker)
+	{
+		delete _hft_mocker;
+		_hft_mocker = NULL;
+	}
+
 	_hft_mocker = new ExpHftMocker(&_replayer, name);
-	_replayer.register_sink(_hft_mocker);
+	if (hook) _hft_mocker->install_hook();
+	_replayer.register_sink(_hft_mocker, name);
 	return _hft_mocker->id();
 }
 
 uint32_t WtBtRunner::initSelMocker(const char* name, uint32_t date, uint32_t time, const char* period, const char* trdtpl /* = "CHINA" */, const char* session /* = "TRADING" */, int32_t slippage/* = 0*/)
 {
+	if (_sel_mocker)
+	{
+		delete _sel_mocker;
+		_sel_mocker = NULL;
+	}
+
 	_sel_mocker = new ExpSelMocker(&_replayer, name, slippage);
-	_replayer.register_sink(_sel_mocker);
+	_replayer.register_sink(_sel_mocker, name);
 
 	_replayer.register_task(_sel_mocker->id(), date, time, period, trdtpl, session);
 	return _sel_mocker->id();
@@ -162,6 +323,17 @@ void WtBtRunner::ctx_on_calc(uint32_t id, uint32_t curDate, uint32_t curTime, En
 	{
 	case ET_CTA: if (_cb_cta_calc) _cb_cta_calc(id, curDate, curTime); break;
 	case ET_SEL: if (_cb_sel_calc) _cb_sel_calc(id, curDate, curTime); break;
+	default:
+		break;
+	}
+}
+
+void WtBtRunner::ctx_on_calc_done(uint32_t id, uint32_t curDate, uint32_t curTime, EngineType eType /* = ET_CTA */)
+{
+	switch (eType)
+	{
+	case ET_CTA: if (_cb_cta_calc_done) _cb_cta_calc_done(id, curDate, curTime); break;
+	case ET_SEL: if (_cb_sel_calc_done) _cb_sel_calc_done(id, curDate, curTime); break;
 	default:
 		break;
 	}
@@ -205,19 +377,19 @@ void WtBtRunner::ctx_on_tick(uint32_t id, const char* stdCode, WTSTickData* newT
 
 void WtBtRunner::hft_on_order_queue(uint32_t id, const char* stdCode, WTSOrdQueData* newOrdQue)
 {
-	if (_cb_hft_ordque) 
+	if (_cb_hft_ordque)
 		_cb_hft_ordque(id, stdCode, &newOrdQue->getOrdQueStruct());
 }
 
 void WtBtRunner::hft_on_order_detail(uint32_t id, const char* stdCode, WTSOrdDtlData* newOrdDtl)
 {
-	if (_cb_hft_orddtl) 
+	if (_cb_hft_orddtl)
 		_cb_hft_orddtl(id, stdCode, &newOrdDtl->getOrdDtlStruct());
 }
 
 void WtBtRunner::hft_on_transaction(uint32_t id, const char* stdCode, WTSTransData* newTrans)
 {
-	if (_cb_hft_trans) 
+	if (_cb_hft_trans)
 		_cb_hft_trans(id, stdCode, &newTrans->getTransStruct());
 }
 
@@ -245,13 +417,25 @@ void WtBtRunner::hft_on_trade(uint32_t cHandle, WtUInt32 localid, const char* st
 		_cb_hft_trd(cHandle, localid, stdCode, isBuy, vol, price, userTag);
 }
 
-void WtBtRunner::init(const char* logProfile /* = "" */, bool isFile /* = true */)
+void WtBtRunner::init(const char* logProfile /* = "" */, bool isFile /* = true */, const char* outDir/* = "./outputs_bt"*/)
 {
+#ifdef _MSC_VER
+	CMiniDumper::Enable(getModuleName(), true, WtHelper::getCWD().c_str());
+#endif
+
 	WTSLogger::init(logProfile, isFile);
+
+	WtHelper::setInstDir(getBinDir());
+	WtHelper::setOutputDir(outDir);
 }
 
 void WtBtRunner::config(const char* cfgFile, bool isFile /* = true */)
 {
+	if(_inited)
+	{
+		WTSLogger::error("WtBtEngine has already been inited");
+		return;
+	}
 	std::string content;
 	if (isFile)
 		StdFile::read_file_content(cfgFile, content);
@@ -265,36 +449,40 @@ void WtBtRunner::config(const char* cfgFile, bool isFile /* = true */)
 		return;
 	}
 
-#ifdef _WIN32
-	std::string module = getBinDir() + "libmysql.dll";
-	DLLHelper::load_library(module.c_str());
-#endif
 
 	WTSVariant* cfg = WTSVariant::createObject();
 	jsonToVariant(root, cfg);
 
-	_replayer.init(cfg->get("replayer"));
+	//初始化事件推送器
+	initEvtNotifier(cfg->get("notifier"));
+
+	_replayer.init(cfg->get("replayer"), &_notifier, this);
 
 	WTSVariant* cfgEnv = cfg->get("env");
 	const char* mode = cfgEnv->getCString("mocker");
 	WTSVariant* cfgMode = cfg->get(mode);
 	if (strcmp(mode, "cta") == 0 && cfgMode)
 	{
-		_cta_mocker = new ExpCtaMocker(&_replayer, "cta");
-		_cta_mocker->initCtaFactory(cfgMode);
-		_replayer.register_sink(_cta_mocker);
+		const char* name = cfgMode->getCString("name");
+		int32_t slippage = cfgMode->getInt32("slippage");
+		_cta_mocker = new ExpCtaMocker(&_replayer, name, slippage, &_notifier);
+		_cta_mocker->init_cta_factory(cfgMode);
+		_replayer.register_sink(_cta_mocker, name);
 	}
 	else if (strcmp(mode, "hft") == 0 && cfgMode)
 	{
-		_hft_mocker = new ExpHftMocker(&_replayer, "hft");
-		_hft_mocker->initHftFactory(cfgMode);
-		_replayer.register_sink(_hft_mocker);
+		const char* name = cfgMode->getCString("name");
+		_hft_mocker = new ExpHftMocker(&_replayer, name);
+		_hft_mocker->init_hft_factory(cfgMode);
+		_replayer.register_sink(_hft_mocker, name);
 	}
 	else if (strcmp(mode, "sel") == 0 && cfgMode)
 	{
-		_sel_mocker = new ExpSelMocker(&_replayer, "sel");
-		_sel_mocker->initSelFactory(cfgMode);
-		_replayer.register_sink(_sel_mocker);
+		const char* name = cfgMode->getCString("name");
+		int32_t slippage = cfgMode->getInt32("slippage");
+		_sel_mocker = new ExpSelMocker(&_replayer, name, slippage);
+		_sel_mocker->init_sel_factory(cfgMode);
+		_replayer.register_sink(_sel_mocker, name);
 
 		WTSVariant* cfgTask = cfgMode->get("task");
 		if(cfgTask)
@@ -303,24 +491,84 @@ void WtBtRunner::config(const char* cfgFile, bool isFile /* = true */)
 	}
 	else if (strcmp(mode, "exec") == 0 && cfgMode)
 	{
+		const char* name = cfgMode->getCString("name");
 		_exec_mocker = new ExecMocker(&_replayer);
 		_exec_mocker->init(cfgMode);
-		_replayer.register_sink(_exec_mocker);
+		_replayer.register_sink(_exec_mocker, name);
 	}
 }
 
-void WtBtRunner::run()
+void WtBtRunner::run(bool bNeedDump /* = false */, bool bAsync /* = false */)
 {
-	try
+	if (_running)
+		return;
+
+	_async = bAsync;
+
+	WTSLogger::info("Backtesting will run in %s mode", _async ? "async" : "sync");
+
+	if (_cta_mocker)
+		_cta_mocker->enable_hook(_async);
+	else if (_hft_mocker)
+		_hft_mocker->enable_hook(_async);
+
+	_replayer.prepare();
+
+	_worker.reset(new StdThread([this, bNeedDump]() {
+		_running = true;
+		try
+		{
+			_replayer.run(bNeedDump);
+		}
+		catch (...)
+		{
+			WTSLogger::error("Exception raised while worker running");
+			//print_stack_trace([](const char* message) {
+			//	WTSLogger::error(message);
+			//});
+		}
+		WTSLogger::debug("Worker thread of backtest finished");
+		_running = false;
+
+	}));
+
+	if (!bAsync)
+		_worker->join();
+}
+
+void WtBtRunner::stop()
+{
+	if (!_running)
 	{
-		_replayer.run();
+		if (_worker)
+		{
+			_worker->join();
+			_worker.reset();
+		}
+		return;
 	}
-	catch(...)
+
+	_replayer.stop();
+
+	WTSLogger::debug("Notify to finish last round");
+
+	if (_cta_mocker)
+		_cta_mocker->step_calc();
+
+	if (_hft_mocker)
+		_hft_mocker->step_tick();
+
+	WTSLogger::debug("Last round ended");
+
+	if (_worker)
 	{
-		print_stack_trace([](const char* message) {
-			WTSLogger::error(message);
-		});
+		_worker->join();
+		_worker.reset();
 	}
+
+	WTSLogger::freeAllDynLoggers();
+
+	WTSLogger::debug("Backtest stopped");
 }
 
 void WtBtRunner::release()
@@ -328,21 +576,41 @@ void WtBtRunner::release()
 	WTSLogger::stop();
 }
 
-void WtBtRunner::dump_bars(const char* stdCode, const char* period, FuncDumpBarsCallback cb, FuncCountDataCallback cbCnt)
+void WtBtRunner::set_time_range(WtUInt64 stime, WtUInt64 etime)
 {
-	WTSKlineSlice* kline = _replayer.get_kline_slice(stdCode, period, UINT_MAX);
-	if (kline)
-	{
-		cbCnt(kline->size());
-		for (int32_t idx = 0; idx < kline->size(); idx++)
-		{
-			WTSBarStruct* bs = kline->at(idx);
-			cb(bs, (idx == kline->size() - 1));
-		}
-		kline->release();
-	}
-	else
-	{
-		cbCnt(0);
-	}
+	_replayer.set_time_range(stime, etime);
+
+	WTSLogger::info(fmt::format("Backtest time range is set to be [{},{}] mannually", stime, etime).c_str());
+}
+
+void WtBtRunner::enable_tick(bool bEnabled /* = true */)
+{
+	_replayer.enable_tick(bEnabled);
+
+	WTSLogger::info("Tick data replaying is %s", bEnabled ? "enabled" : "disabled");
+}
+
+void WtBtRunner::clear_cache()
+{
+	_replayer.clear_cache();
+}
+
+const char* LOG_TAGS[] = {
+	"all",
+	"debug",
+	"info",
+	"warn",
+	"error",
+	"fatal",
+	"none",
+};
+
+bool WtBtRunner::initEvtNotifier(WTSVariant* cfg)
+{
+	if (cfg == NULL || cfg->type() != WTSVariant::VT_Object)
+		return false;
+
+	_notifier.init(cfg);
+
+	return true;
 }

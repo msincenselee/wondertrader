@@ -22,16 +22,7 @@ NS_OTP_END
 
 USING_NS_OTP;
 
-#ifdef _WIN32
-#	define PORTER_FLAG _cdecl
-#else
-#	define PORTER_FLAG __attribute__((_cdecl))
-#endif
-
 typedef unsigned long		CtxHandler;
-typedef unsigned long		WtUInt32;
-typedef unsigned long long	WtUInt64;
-typedef const char*			WtString;
 
 static const WtUInt32	EVENT_ENGINE_INIT	= 1;	//框架初始化
 static const WtUInt32	EVENT_SESSION_BEGIN = 2;	//交易日开始
@@ -44,8 +35,8 @@ static const WtUInt32	CHNL_EVENT_LOST		= 1001;	//通道断开事件
 /*
 *	回调函数定义
 */
-typedef void(PORTER_FLAG *FuncGetBarsCallback)(CtxHandler cHandle, const char* stdCode, const char* period, WTSBarStruct* bar, bool isLast);
-typedef void(PORTER_FLAG *FuncGetTicksCallback)(CtxHandler cHandle, const char* stdCode, WTSTickStruct* tick, bool isLast);
+typedef void(PORTER_FLAG *FuncGetBarsCallback)(CtxHandler cHandle, const char* stdCode, const char* period, WTSBarStruct* bar, WtUInt32 count, bool isLast);
+typedef void(PORTER_FLAG *FuncGetTicksCallback)(CtxHandler cHandle, const char* stdCode, WTSTickStruct* tick, WtUInt32 count, bool isLast);
 typedef void(PORTER_FLAG *FuncStraInitCallback)(CtxHandler cHandle);
 typedef void(PORTER_FLAG *FuncSessionEvtCallback)(CtxHandler cHandle, WtUInt32 curTDate, bool isBegin);
 typedef void(PORTER_FLAG *FuncStraTickCallback)(CtxHandler cHandle, const char* stdCode, WTSTickStruct* tick);
@@ -54,11 +45,11 @@ typedef void(PORTER_FLAG *FuncStraBarCallback)(CtxHandler cHandle, const char* s
 typedef void(PORTER_FLAG *FuncGetPositionCallback)(CtxHandler cHandle, const char* stdCode, double position, bool isLast);
 
 typedef void(PORTER_FLAG *FuncStraOrdQueCallback)(CtxHandler cHandle, const char* stdCode, WTSOrdQueStruct* ordQue);
-typedef void(PORTER_FLAG *FuncGetOrdQueCallback)(CtxHandler cHandle, const char* stdCode, WTSOrdQueStruct* ordQue, bool isLast);
+typedef void(PORTER_FLAG *FuncGetOrdQueCallback)(CtxHandler cHandle, const char* stdCode, WTSOrdQueStruct* ordQue, WtUInt32 count, bool isLast);
 typedef void(PORTER_FLAG *FuncStraOrdDtlCallback)(CtxHandler cHandle, const char* stdCode, WTSOrdDtlStruct* ordDtl);
-typedef void(PORTER_FLAG *FuncGetOrdDtlCallback)(CtxHandler cHandle, const char* stdCode, WTSOrdDtlStruct* ordDtl, bool isLast);
+typedef void(PORTER_FLAG *FuncGetOrdDtlCallback)(CtxHandler cHandle, const char* stdCode, WTSOrdDtlStruct* ordDtl, WtUInt32 count, bool isLast);
 typedef void(PORTER_FLAG *FuncStraTransCallback)(CtxHandler cHandle, const char* stdCode, WTSTransStruct* trans);
-typedef void(PORTER_FLAG *FuncGetTransCallback)(CtxHandler cHandle, const char* stdCode, WTSTransStruct* trans, bool isLast);
+typedef void(PORTER_FLAG *FuncGetTransCallback)(CtxHandler cHandle, const char* stdCode, WTSTransStruct* trans, WtUInt32 count, bool isLast);
 
 //////////////////////////////////////////////////////////////////////////
 //HFT回调函数
@@ -86,6 +77,8 @@ typedef void(PORTER_FLAG *FuncExecInitCallback)(const char* id);
 typedef void(PORTER_FLAG *FuncExecCmdCallback)(const char* id, const char* StdCode, double targetPos);
 
 //////////////////////////////////////////////////////////////////////////
-//数据相关回调函数
-typedef void(PORTER_FLAG *FuncDumpBarsCallback)(WTSBarStruct* bar, bool isLast);
-typedef void(PORTER_FLAG *FuncCountDataCallback)(WtUInt32 dataCnt);
+//外部数据加载模块
+typedef bool(PORTER_FLAG *FuncLoadFnlBars)(const char* stdCode, const char* period);
+typedef bool(PORTER_FLAG *FuncLoadRawBars)(const char* stdCode, const char* period);
+typedef bool(PORTER_FLAG *FuncLoadAdjFactors)(const char* stdCode);
+typedef bool(PORTER_FLAG *FuncLoadRawTicks)(const char* stdCode, uint32_t uDate);

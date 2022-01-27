@@ -29,6 +29,14 @@ extern "C"
 
 	EXPORT_FLAG void		register_exec_callbacks(FuncExecInitCallback cbInit, FuncExecCmdCallback cbExec);
 
+	EXPORT_FLAG void		register_ext_data_loader(FuncLoadFnlBars fnlBarLoader, FuncLoadRawBars rawBarLoader, FuncLoadAdjFactors fctLoader, FuncLoadRawTicks tickLoader);
+
+	EXPORT_FLAG void		feed_raw_bars(WTSBarStruct* bars, WtUInt32 count, double factor);
+
+	EXPORT_FLAG void		feed_raw_ticks(WTSTickStruct* ticks, WtUInt32 count);
+
+	EXPORT_FLAG void		feed_adj_factors(WtString stdCode, WtUInt32* dates, double* factors, WtUInt32 count);
+
 	EXPORT_FLAG	void		init_porter(const char* logCfg, bool isFile, const char* genDir);
 
 	EXPORT_FLAG	void		config_porter(const char* cfgfile, bool isFile);
@@ -53,8 +61,6 @@ extern "C"
 
 	EXPORT_FLAG	bool		create_ext_executer(const char* id);
 
-	EXPORT_FLAG	void		dump_bars(const char* stdCode, const char* period, FuncDumpBarsCallback cb, FuncCountDataCallback cbCnt);
-
 	//////////////////////////////////////////////////////////////////////////
 	//CTA策略接口
 #pragma region "CTA接口"
@@ -78,7 +84,7 @@ extern "C"
 
 	EXPORT_FLAG	double		cta_get_position_avgpx(CtxHandler cHandle, const char* stdCode);
 
-	EXPORT_FLAG	double		cta_get_position(CtxHandler cHandle, const char* stdCode, const char* openTag);
+	EXPORT_FLAG	double		cta_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid, const char* openTag);
 
 	EXPORT_FLAG	void		cta_set_position(CtxHandler cHandle, const char* stdCode, double qty, const char* uesrTag, double limitprice, double stopprice);
 
@@ -94,7 +100,7 @@ extern "C"
 
 	EXPORT_FLAG	WtUInt32	cta_get_bars(CtxHandler cHandle, const char* stdCode, const char* period, WtUInt32 barCnt, bool isMain, FuncGetBarsCallback cb);
 
-	EXPORT_FLAG	WtUInt32	cta_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, bool isMain, FuncGetTicksCallback cb);
+	EXPORT_FLAG	WtUInt32	cta_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetTicksCallback cb);
 
 	EXPORT_FLAG	void		cta_get_all_position(CtxHandler cHandle, FuncGetPositionCallback cb);
 
@@ -117,10 +123,10 @@ extern "C"
 
 	//////////////////////////////////////////////////////////////////////////
 	//选股策略接口
-#pragma  region "选股接口"
+#pragma  region "SEL接口"
 	EXPORT_FLAG	CtxHandler	create_sel_context(const char* name, uint32_t date, uint32_t time, const char* period, const char* trdtpl = "CHINA", const char* session = "TRADING");
 
-	EXPORT_FLAG	double		sel_get_position(CtxHandler cHandle, const char* stdCode, const char* openTag);
+	EXPORT_FLAG	double		sel_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid, const char* openTag);
 
 	EXPORT_FLAG	void		sel_set_position(CtxHandler cHandle, const char* stdCode, double qty, const char* uesrTag);
 
@@ -132,7 +138,7 @@ extern "C"
 
 	EXPORT_FLAG	WtUInt32	sel_get_bars(CtxHandler cHandle, const char* stdCode, const char* period, WtUInt32 barCnt, FuncGetBarsCallback cb);
 
-	EXPORT_FLAG	WtUInt32	sel_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, bool isMain, FuncGetTicksCallback cb);
+	EXPORT_FLAG	WtUInt32	sel_get_ticks(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetTicksCallback cb);
 
 	EXPORT_FLAG	void		sel_get_all_position(CtxHandler cHandle, FuncGetPositionCallback cb);
 
@@ -143,14 +149,14 @@ extern "C"
 	EXPORT_FLAG	WtString	sel_load_userdata(CtxHandler cHandle, const char* key, const char* defVal);
 
 	EXPORT_FLAG	void		sel_sub_ticks(CtxHandler cHandle, const char* stdCode);
-#pragma endregion "选股接口"
+#pragma endregion "SEL接口"
 
 	//////////////////////////////////////////////////////////////////////////
 	//HFT策略接口
 #pragma  region "HFT接口"
 	EXPORT_FLAG	CtxHandler	create_hft_context(const char* name, const char* trader, bool agent);
 
-	EXPORT_FLAG	double		hft_get_position(CtxHandler cHandle, const char* stdCode);
+	EXPORT_FLAG	double		hft_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid);
 
 	EXPORT_FLAG	double		hft_get_position_profit(CtxHandler cHandle, const char* stdCode);
 

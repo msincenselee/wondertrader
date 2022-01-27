@@ -14,9 +14,8 @@
 #include "../Includes/FasterDefs.h"
 #include "../Includes/ISelStraCtx.h"
 #include "../Includes/SelStrategyDefs.h"
-
 #include "../Includes/WTSDataDef.hpp"
-#include "../Share/BoostFile.hpp"
+
 #include "../Share/DLLHelper.hpp"
 
 class SelStrategy;
@@ -44,7 +43,7 @@ private:
 	void	append_signal(const char* stdCode, double qty, const char* userTag = "", double price = 0.0);
 
 public:
-	bool	initSelFactory(WTSVariant* cfg);
+	bool	init_sel_factory(WTSVariant* cfg);
 
 public:
 	//////////////////////////////////////////////////////////////////////////
@@ -78,7 +77,7 @@ public:
 
 	//////////////////////////////////////////////////////////////////////////
 	//²ßÂÔ½Ó¿Ú
-	virtual double stra_get_position(const char* stdCode, const char* userTag = "") override;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") override;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "") override;
 	virtual double stra_get_price(const char* stdCode) override;
 
@@ -93,7 +92,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
-	virtual void stra_log_text(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* fmt, ...) override;
+	virtual void stra_log_debug(const char* fmt, ...) override;
+	virtual void stra_log_error(const char* fmt, ...) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
@@ -146,6 +147,7 @@ protected:
 		double		_volume;
 		double		_closeprofit;
 		double		_dynprofit;
+		double		_frozen;
 
 		std::vector<DetailInfo> _details;
 
@@ -154,7 +156,10 @@ protected:
 			_volume = 0;
 			_closeprofit = 0;
 			_dynprofit = 0;
+			_frozen = 0;
 		}
+
+		inline double valid() const { return _volume - _frozen; }
 	} PosInfo;
 	typedef faster_hashmap<std::string, PosInfo> PositionMap;
 	PositionMap		_pos_map;

@@ -14,6 +14,7 @@
 #include <memory>
 #include <sstream>
 #include <thread>
+#include <set>
 
 #include <spdlog/spdlog.h>
 
@@ -62,15 +63,19 @@ public:
 	static void vlog_dyn(const char* patttern, const char* catName, WTSLogLevel ll, const char* format, va_list& args);
 	static void log_dyn_raw(const char* patttern, const char* catName, WTSLogLevel ll, const char* message);
 
-	static void init(const char* propFile = "logcfg.json", bool isFile = true, ILogHandler* handler = NULL, WTSLogLevel logLevel = LL_INFO);
+	static void init(const char* propFile = "logcfg.json", bool isFile = true, ILogHandler* handler = NULL, WTSLogLevel logLevel = LL_DEBUG);
 
-	static void registerHandler(ILogHandler* handler = NULL, WTSLogLevel logLevel = LL_INFO);
+	static void registerHandler(ILogHandler* handler = NULL, WTSLogLevel logLevel = LL_DEBUG);
 
 	static void stop();
+
+	static void freeAllDynLoggers();
 
 	static SpdLoggerPtr getLogger(const char* logger, const char* pattern = "");
 
 private:
+	static bool					m_bInited;
+	static bool					m_bTpInited;
 	static bool					m_bStopped;
 	static ILogHandler*			m_logHandler;
 	static WTSLogLevel			m_logLevel;
@@ -79,6 +84,7 @@ private:
 
 	typedef WTSHashMap<std::string>	LogPatterns;
 	static LogPatterns*			m_mapPatterns;
+	static std::set<std::string>	m_setDynLoggers;
 
 	static thread_local char	m_buffer[MAX_LOG_BUF_SIZE];
 };

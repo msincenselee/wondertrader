@@ -9,21 +9,25 @@
  */
 #pragma once
 #include <sstream>
+#include <atomic>
 #include "HisDataReplayer.h"
 
 #include "../Includes/FasterDefs.h"
 #include "../Includes/ICtaStraCtx.h"
 #include "../Includes/CtaStrategyDefs.h"
-
 #include "../Includes/WTSDataDef.hpp"
-#include "../Share/BoostFile.hpp"
-#include "../Share/DLLHelper.hpp"
 
-class CtaStrategy;
+#include "../Share/DLLHelper.hpp"
+#include "../Share/StdUtils.hpp"
+
+NS_OTP_BEGIN
+class EventNotifier;
+NS_OTP_END
 
 USING_NS_OTP;
 
 class HisDataReplayer;
+class CtaStrategy;
 
 const char COND_ACTION_OL = 0;	//开多
 const char COND_ACTION_CL = 1;	//平多
@@ -59,7 +63,7 @@ typedef faster_hashmap<std::string, CondList>	CondEntrustMap;
 class CtaMocker : public ICtaStraCtx, public IDataSink
 {
 public:
-	CtaMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0);
+	CtaMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0, bool persistData = true, EventNotifier* notifier = NULL);
 	virtual ~CtaMocker();
 
 private:
@@ -77,7 +81,10 @@ private:
 	inline CondList& get_cond_entrusts(const char* stdCode);
 
 public:
-	bool	initCtaFactory(WTSVariant* cfg);
+	bool	init_cta_factory(WTSVariant* cfg);
+	void	install_hook();
+	void	enable_hook(bool bEnabled = true);
+	bool	step_calc();
 
 public:
 	//////////////////////////////////////////////////////////////////////////
@@ -107,7 +114,7 @@ public:
 
 	virtual void on_tick_updated(const char* stdCode, WTSTickData* newTick) override;
 	virtual void on_bar_close(const char* stdCode, const char* period, WTSBarStruct* newBar) override;
-	virtual void on_mainkline_updated(uint32_t curDate, uint32_t curTime) override;
+	virtual void on_calculate(uint32_t curDate, uint32_t curTime) override;
 
 
 	//////////////////////////////////////////////////////////////////////////
@@ -117,7 +124,7 @@ public:
 	virtual void stra_exit_long(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual void stra_exit_short(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 
-	virtual double stra_get_position(const char* stdCode, const char* userTag = "") override;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") override;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual double stra_get_price(const char* stdCode) override;
 
@@ -145,7 +152,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
-	virtual void stra_log_text(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* fmt, ...) override;
+	virtual void stra_log_debug(const char* fmt, ...) override;
+	virtual void stra_log_error(const char* fmt, ...) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
@@ -203,6 +212,7 @@ protected:
 		double		_dynprofit;
 		uint64_t	_last_entertime;
 		uint64_t	_last_exittime;
+		double		_frozen;
 
 		std::vector<DetailInfo> _details;
 
@@ -211,7 +221,10 @@ protected:
 			_volume = 0;
 			_closeprofit = 0;
 			_dynprofit = 0;
+			_frozen = 0;
 		}
+
+		inline double valid() const { return _volume - _frozen; }
 	} PosInfo;
 	typedef faster_hashmap<std::string, PosInfo> PositionMap;
 	PositionMap		_pos_map;
@@ -237,11 +250,6 @@ protected:
 	}SigInfo;
 	typedef faster_hashmap<std::string, SigInfo>	SignalMap;
 	SignalMap		_sig_map;
-
-	//BoostFilePtr	_trade_logs;
-	//BoostFilePtr	_close_logs;
-	//BoostFilePtr	_fund_logs;
-	//BoostFilePtr	_sig_logs;
 
 	std::stringstream	_trade_logs;
 	std::stringstream	_close_logs;
@@ -295,4 +303,16 @@ protected:
 	StraFactInfo	_factory;
 
 	CtaStrategy*	_strategy;
+	EventNotifier*	_notifier;
+
+	StdUniqueMutex	_mtx_calc;
+	StdCondVariable	_cond_calc;
+	bool			_has_hook;		//这是人为控制是否启用钩子
+	bool			_hook_valid;	//这是根据是否是异步回测模式而确定钩子是否可用
+	std::atomic<uint32_t>		_cur_step;	//临时变量，用于控制状态
+
+	bool			_in_backtest;
+	bool			_wait_calc;
+
+	bool			_persist_data;
 };

@@ -10,14 +10,11 @@
 #include "HftStraBaseCtx.h"
 #include "WtHftEngine.h"
 #include "TraderAdapter.h"
-#include "WtHftEngine.h"
 #include "WtHelper.h"
 
 #include "../Includes/WTSContractInfo.hpp"
 
 #include "../Share/CodeHelper.hpp"
-#include "../Share/StrUtil.hpp"
-#include "../Share/StdUtils.hpp"
 #include "../Share/decimal.h"
 
 #include "../WTSTools/WTSLogger.h"
@@ -208,16 +205,15 @@ OrderIDs HftStraBaseCtx::stra_buy(const char* stdCode, double price, double qty,
 {
 	if(CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
 		if (_trader && !_trader->checkOrderLimits(realCode.c_str()))
 		{
-			stra_log_text("%s 已被禁止交易", realCode.c_str());
+			stra_log_info("%s 已被禁止交易", realCode.c_str());
 			return OrderIDs();
 		}
 
@@ -230,16 +226,15 @@ OrderIDs HftStraBaseCtx::stra_buy(const char* stdCode, double price, double qty,
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
 		if (_trader && !_trader->checkOrderLimits(realCode.c_str()))
 		{
-			stra_log_text("%s 已被禁止交易", realCode.c_str());
+			stra_log_info("%s 已被禁止交易", realCode.c_str());
 			return OrderIDs();
 		}
 
@@ -254,7 +249,7 @@ OrderIDs HftStraBaseCtx::stra_buy(const char* stdCode, double price, double qty,
 	{
 		if (!_trader->checkOrderLimits(stdCode))
 		{
-			stra_log_text("%s 已被禁止交易", stdCode);
+			stra_log_info("%s 已被禁止交易", stdCode);
 			return OrderIDs();
 		}
 
@@ -269,18 +264,35 @@ OrderIDs HftStraBaseCtx::stra_buy(const char* stdCode, double price, double qty,
 
 OrderIDs HftStraBaseCtx::stra_sell(const char* stdCode, double price, double qty, const char* userTag)
 {
+	WTSCommodityInfo* commInfo = _engine->get_commodity_info(stdCode);
+	if (commInfo == NULL)
+	{
+		stra_log_error("Cannot find corresponding commodity info of %s", stdCode);
+		return OrderIDs();
+	}
+
+	//如果不能做空，则要看可用持仓
+	if (!commInfo->canShort())
+	{
+		double curPos = stra_get_position(stdCode, true);//只读可用持仓
+		if (decimal::gt(qty, curPos))
+		{
+			stra_log_error("No enough position of %s to sell", stdCode);
+			return OrderIDs();
+		}
+	}
+
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
 		if (_trader && !_trader->checkOrderLimits(realCode.c_str()))
 		{
-			stra_log_text("%s 已被禁止交易", realCode.c_str());
+			stra_log_info("%s 已被禁止交易", realCode.c_str());
 			return OrderIDs();
 		}
 
@@ -293,16 +305,15 @@ OrderIDs HftStraBaseCtx::stra_sell(const char* stdCode, double price, double qty
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
 		if (_trader && !_trader->checkOrderLimits(realCode.c_str()))
 		{
-			stra_log_text("%s 已被禁止交易", realCode.c_str());
+			stra_log_info("%s 已被禁止交易", realCode.c_str());
 			return OrderIDs();
 		}
 
@@ -317,7 +328,7 @@ OrderIDs HftStraBaseCtx::stra_sell(const char* stdCode, double price, double qty
 	{
 		if (_trader && !_trader->checkOrderLimits(stdCode))
 		{
-			stra_log_text("%s 已被禁止交易", stdCode);
+			stra_log_info("%s 已被禁止交易", stdCode);
 			return OrderIDs();
 		}
 
@@ -335,19 +346,17 @@ uint32_t HftStraBaseCtx::stra_enter_long(const char* stdCode, double price, doub
 	std::string realCode = stdCode;
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
@@ -360,19 +369,17 @@ uint32_t HftStraBaseCtx::stra_exit_long(const char* stdCode, double price, doubl
 	std::string realCode = stdCode;
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
@@ -385,19 +392,17 @@ uint32_t HftStraBaseCtx::stra_enter_short(const char* stdCode, double price, dou
 	std::string realCode = stdCode;
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
@@ -410,19 +415,17 @@ uint32_t HftStraBaseCtx::stra_exit_short(const char* stdCode, double price, doub
 	std::string realCode = stdCode;
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 	}
@@ -437,7 +440,19 @@ WTSCommodityInfo* HftStraBaseCtx::stra_get_comminfo(const char* stdCode)
 
 WTSKlineSlice* HftStraBaseCtx::stra_get_bars(const char* stdCode, const char* period, uint32_t count)
 {
-	WTSKlineSlice* ret = _engine->get_kline_slice(_context_id, stdCode, period, count);
+	std::string basePeriod = "";
+	uint32_t times = 1;
+	if (strlen(period) > 1)
+	{
+		basePeriod.append(period, 1);
+		times = strtoul(period + 1, NULL, 10);
+	}
+	else
+	{
+		basePeriod = period;
+	}
+
+	WTSKlineSlice* ret = _engine->get_kline_slice(_context_id, stdCode, basePeriod.c_str(), count, times);
 
 	if (ret)
 		_engine->sub_tick(id(), stdCode);
@@ -491,28 +506,28 @@ WTSTickData* HftStraBaseCtx::stra_get_last_tick(const char* stdCode)
 void HftStraBaseCtx::stra_sub_ticks(const char* stdCode)
 {
 	_engine->sub_tick(id(), stdCode);
-	stra_log_text("Market Data subscribed: %s", stdCode);
+	stra_log_info("Market Data subscribed: %s", stdCode);
 }
 
 void HftStraBaseCtx::stra_sub_order_details(const char* stdCode)
 {
 	_engine->sub_order_detail(id(), stdCode);
-	stra_log_text("Order details subscribed: %s", stdCode);
+	stra_log_info("Order details subscribed: %s", stdCode);
 }
 
 void HftStraBaseCtx::stra_sub_order_queues(const char* stdCode)
 {
 	_engine->sub_order_queue(id(), stdCode);
-	stra_log_text("Order queues subscribed: %s", stdCode);
+	stra_log_info("Order queues subscribed: %s", stdCode);
 }
 
 void HftStraBaseCtx::stra_sub_transactions(const char* stdCode)
 {
 	_engine->sub_transaction(id(), stdCode);
-	stra_log_text("Transactions subscribed: %s", stdCode);
+	stra_log_info("Transactions subscribed: %s", stdCode);
 }
 
-void HftStraBaseCtx::stra_log_text(const char* fmt, ...)
+void HftStraBaseCtx::stra_log_info(const char* fmt, ...)
 {
 	char szBuf[256] = { 0 };
 	uint32_t length = sprintf(szBuf, "[%s]", _name.c_str());
@@ -520,6 +535,29 @@ void HftStraBaseCtx::stra_log_text(const char* fmt, ...)
 	va_list args;
 	va_start(args, fmt);
 	WTSLogger::vlog2("strategy", LL_INFO, szBuf, args);
+	va_end(args);
+}
+
+void HftStraBaseCtx::stra_log_debug(const char* fmt, ...)
+{
+	char szBuf[256] = { 0 };
+	uint32_t length = sprintf(szBuf, "[%s]", _name.c_str());
+	strcat(szBuf, fmt);
+	va_list args;
+	va_start(args, fmt);
+	WTSLogger::vlog_dyn("strategy", _name.c_str(), LL_DEBUG, szBuf, args);
+	va_end(args);
+}
+
+
+void HftStraBaseCtx::stra_log_error(const char* fmt, ...)
+{
+	char szBuf[256] = { 0 };
+	uint32_t length = sprintf(szBuf, "[%s]", _name.c_str());
+	strcat(szBuf, fmt);
+	va_list args;
+	va_start(args, fmt);
+	WTSLogger::vlog_dyn("strategy", _name.c_str(), LL_ERROR, szBuf, args);
 	va_end(args);
 }
 
@@ -578,7 +616,7 @@ void HftStraBaseCtx::on_entrust(uint32_t localid, const char* stdCode, bool bSuc
 	}
 }
 
-void HftStraBaseCtx::on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail)
+void HftStraBaseCtx::on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail, uint32_t tradingday)
 {
 
 }
@@ -593,33 +631,31 @@ double HftStraBaseCtx::stra_get_position_profit(const char* stdCode)
 	return pInfo._dynprofit;
 }
 
-double HftStraBaseCtx::stra_get_position(const char* stdCode)
+double HftStraBaseCtx::stra_get_position(const char* stdCode, bool bOnlyValid /* = false */)
 {
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
-		return _trader->getPosition(realCode.c_str());
+		return _trader->getPosition(realCode.c_str(), bOnlyValid);
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
-		return _trader->getPosition(realCode.c_str());
+		return _trader->getPosition(realCode.c_str(), bOnlyValid);
 	}
 	else
 	{
-		return _trader->getPosition(stdCode);
+		return _trader->getPosition(stdCode, bOnlyValid);
 	}
 }
 
@@ -627,10 +663,9 @@ double HftStraBaseCtx::stra_get_undone(const char* stdCode)
 {
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
@@ -638,10 +673,9 @@ double HftStraBaseCtx::stra_get_undone(const char* stdCode)
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _engine->get_hot_mgr()->getSecondRawCode(cInfo._exchg, cInfo._product, _engine->get_trading_date());
-		std::string realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		std::string realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 
 		_code_map[realCode] = stdCode;
 
@@ -760,7 +794,7 @@ void HftStraBaseCtx::do_set_position(const char* stdCode, double qty, double pri
 	if (decimal::eq(pInfo._volume, qty))
 		return;
 
-	stra_log_text("Target position updated: %.0f -> %0.f", pInfo._volume, qty);
+	stra_log_info("Target position updated: %.0f -> %0.f", pInfo._volume, qty);
 
 	WTSCommodityInfo* commInfo = _engine->get_commodity_info(stdCode);
 

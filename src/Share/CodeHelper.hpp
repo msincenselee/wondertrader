@@ -15,6 +15,12 @@
 
 USING_NS_OTP;
 
+//主力合约后缀
+static const char* SUFFIX_HOT = ".HOT";
+
+//次主力合约后缀
+static const char* SUFFIX_2ND = ".2ND";
+
 class CodeHelper
 {
 public:
@@ -36,6 +42,23 @@ public:
 		inline bool isSecond() const { return _hotflag == 2; }
 		inline bool isFlat() const { return _hotflag == 0; }
 
+		inline bool isFuture() const { return _category == CC_Future; }
+		inline bool isStock() const { return _category == CC_Stock; }
+		inline bool isFutOpt() const { return _category == CC_FutOption; }
+		inline bool isETFOpt() const { return _category == CC_ETFOption; }
+		inline bool isSpotOpt() const { return _category == CC_SpotOption; }
+
+		inline bool isOption() const { return _category == CC_SpotOption || _category == CC_FutOption || _category == CC_ETFOption; }
+
+		inline const char* pureStdCode() const
+		{
+			static char buffer[64] = { 0 };
+			if (strlen(buffer) == 0)
+				sprintf(buffer, "%s.%s.%s", _exchg, _product, _code);
+
+			return buffer;
+		}
+
 		_CodeInfo()
 		{
 			memset(this, 0, sizeof(_CodeInfo));
@@ -43,76 +66,123 @@ public:
 		}
 	} CodeInfo;
 
+private:
+	static inline std::size_t find(const char* src, char symbol = '.', bool bReverse = false)
+	{
+		std::size_t len = strlen(src);
+		if (len != 0)
+		{
+			if (bReverse)
+			{
+				for (std::size_t idx = len - 1; idx >= 0; idx--)
+				{
+					if (src[idx] == symbol)
+						return idx;
+				}
+			}
+			else
+			{
+				for (std::size_t idx = 0; idx < len; idx++)
+				{
+					if (src[idx] == symbol)
+						return idx;
+				}
+			}
+		}
+
+
+		return std::string::npos;
+	}
+
 public:
+	/*
+	 *	是否是标准的股票代码
+	 *	格式如SSE.STK.600000[Q|H]
+	 */
 	static inline bool	isStdStkCode(const char* code)
 	{
 		using namespace boost::xpressive;
 		/* 定义正则表达式 */
-		cregex reg_stk = cregex::compile("^[A-Z]+.([A-Z]+.)?\\d{6,16}Q?$");
+		static cregex reg_stk = cregex::compile("^[A-Z]+.[A-Z]+.\\d{6,16}(Q?|H)$");
 		return 	regex_match(code, reg_stk);
 	}
 
-	static inline std::string stdCodeToStdCommID(const char* stdCode)
+	/*
+	 *	是否是标准期货主力合约代码
+	 */
+	static inline bool	isStdFutHotCode(const char* stdCode)
 	{
-		if (isStdStkCode(stdCode))
-			return stdStkCodeToStdCommID(stdCode);
-		else
-			return stdFutCodeToStdCommID(stdCode);
+		return StrUtil::endsWith(stdCode, SUFFIX_HOT, false);
 	}
 
-	static inline std::string stdStkCodeToStdCommID(const char* stdCode)
+	/*
+	 *	是否是标准期货次主力合约代码
+	 */
+	static inline bool	isStdFut2ndCode(const char* stdCode)
 	{
-		//如果是SSE.600000格式的,默认为STK品种
-		//如果是SSE.STK.600000格式的,就解析品种出来
-		StringVector ay = StrUtil::split(stdCode, ".");
-		std::string str = ay[0];
-		str += ".";
-		if (ay.size() == 2)
-			str += "STK";
-		else
-			str += ay[1];
-		return str;
+		return StrUtil::endsWith(stdCode, SUFFIX_2ND, false);
+	}
+
+	/*
+	 *	是否是期货期权合约代码
+	 *	CFFEX.IO2007.C.4000
+	 */
+	static inline bool	isStdFutOptCode(const char* code)
+	{
+		using namespace boost::xpressive;
+		/* 定义正则表达式 */
+		static cregex reg_stk = cregex::compile("^[A-Z]+.[A-z]+\\d{4}.(C|P).\\d+$");	//CFFEX.IO2007.C.4000
+		return 	regex_match(code, reg_stk);
+	}
+
+	/*
+	 *	是否是标准期货合约代码
+	 *	//CFFEX.IF.2007
+	 */
+	static inline bool	isStdFutCode(const char* code)
+	{
+		using namespace boost::xpressive;
+		/* 定义正则表达式 */
+		static cregex reg_stk = cregex::compile("^[A-Z]+.[A-z]+.\\d{4}$");	//CFFEX.IO.2007
+		return 	regex_match(code, reg_stk);
+	}
+
+	/*
+	 *	标准代码转标准品种ID
+	 *	如SHFE.ag.1912->SHFE.ag
+	 *	如果是简化的股票代码，如SSE.600000，则转成SSE.STK
+	 */
+	static inline std::string stdCodeToStdCommID(const char* stdCode)
+	{
+		auto idx = find(stdCode, '.', true);
+		std::string stdCommID(stdCode, idx);
+		return std::move(stdCommID);
 	}
 
 	/*
 	 *	从基础合约代码提取基础品种代码
 	 *	如ag1912 -> ag
 	 */
-	static inline std::string bscFutCodeToBscCommID(const char* code)
+	static inline std::string rawFutCodeToRawCommID(const char* code)
 	{
-		std::string strRet;
 		int nLen = 0;
 		while ('A' <= code[nLen] && code[nLen] <= 'z')
-		{
-			strRet += code[nLen];
 			nLen++;
-		}
 
-		return strRet;
-	}
-
-	/*
-	 *	标准合约代码转标准品种代码
-	 *	如SHFE.ag.1912 -> SHFE.ag
-	 */
-	static inline std::string stdFutCodeToStdCommID(const char* stdCode)
-	{
-		StringVector ay = StrUtil::split(stdCode, ".");
-		std::string str = ay[0];
-		str += ".";
-		str += ay[1];
-		return str;
+		std::string strRet(code, nLen);
+		return std::move(strRet);
 	}
 
 	/*
 	 *	基础合约代码转标准码
 	 *	如ag1912转成全码
+	 *	-- 暂时没有地方调用 --
 	 */
-	static inline std::string bscFutCodeToStdCode(const char* code, const char* exchg, bool isComm = false)
+	static inline std::string rawFutCodeToStdCode(const char* code, const char* exchg, bool isComm = false)
 	{
 		std::string pid = code;
 		if (!isComm)
-			pid = bscFutCodeToBscCommID(code);
+			pid = rawFutCodeToRawCommID(code);
 
 		std::string ret = StrUtil::printf("%s.%s", exchg, pid.c_str());
 		if (!isComm)
@@ -135,49 +205,34 @@ public:
 				ret += s;
 			}
 		}
-		return ret;
+		return std::move(ret);
 	}
 
-	static inline std::string bscStkCodeToStdCode(const char* code, const char* exchg, const char* pid = "")
+	/*
+	 *	原始股票代码转标准代码
+	 *	-- 暂时没有地方调用 --
+	 */
+	static inline std::string rawStkCodeToStdCode(const char* code, const char* exchg, const char* pid)
 	{
-		if(strlen(pid) == 0)
-			return StrUtil::printf("%s.%s", exchg, code);
-		else
-			return StrUtil::printf("%s.%s.%s", exchg, pid, code);
+		return std::move(StrUtil::printf("%s.%s.%s", exchg, pid, code));
 	}
-
-	static inline bool	isStdFutOptCode(const char* code)
-	{
-		using namespace boost::xpressive;
-		/* 定义正则表达式 */
-		cregex reg_stk = cregex::compile("^[A-Z]+.[A-z]+\\d{4}.(C|P).\\d+$");	//CFFEX.IO2007.C.4000
-		return 	regex_match(code, reg_stk);
-	}
-
-	static inline bool	isStdFutCode(const char* code)
-	{
-		using namespace boost::xpressive;
-		/* 定义正则表达式 */
-		cregex reg_stk = cregex::compile("^[A-Z]+.[A-z]+.\\d{4}$");	//CFFEX.IO.2007
-		return 	regex_match(code, reg_stk);
-	}
-
 
 	/*
 	 *	期货期权代码标准化
 	 *	标准期货期权代码格式为CFFEX.IO2008.C.4300
+	 *	-- 暂时没有地方调用 --
 	 */
-	static inline std::string bscFutOptCodeToStdCode(const char* code, const char* exchg)
+	static inline std::string rawFutOptCodeToStdCode(const char* code, const char* exchg)
 	{
 		using namespace boost::xpressive;
 		/* 定义正则表达式 */
-		cregex reg_stk = cregex::compile("^[A-Z|a-z]+\\d{4}-(C|P)-\\d+$");	//中金所、大商所格式IO2013-C-4000
+		static cregex reg_stk = cregex::compile("^[A-Z|a-z]+\\d{4}-(C|P)-\\d+$");	//中金所、大商所格式IO2013-C-4000
 		bool bMatch = regex_match(code, reg_stk);
 		if(bMatch)
 		{
 			std::string s = StrUtil::printf("%s.%s", exchg, code);
 			StrUtil::replace(s, "-", ".");
-			return s;
+			return std::move(s);
 		}
 		else
 		{
@@ -198,54 +253,47 @@ public:
 			s.append(&code[idx], 1);
 			s.append(".");
 			s.append(&code[idx + 1]);
-			return s;
+			return std::move(s);
 		}
 	}
 
 	/*
-	 *	通过品种代码获取主力合约代码
+	 *	标准合约代码转主力代码
 	 */
-	static inline std::string bscCodeToStdHotCode(const char* code, const char* exchg, bool isComm = false)
-	{
-		std::string pid = code;
-		if (!isComm)
-			pid = bscFutCodeToBscCommID(code);
-
-		std::string ret = StrUtil::printf("%s.%s.HOT", exchg, pid.c_str());
-		return ret;
-	}
-
-	static inline std::string bscCodeToStd2ndCode(const char* code, const char* exchg, bool isComm = false)
-	{
-		std::string pid = code;
-		if (!isComm)
-			pid = bscFutCodeToBscCommID(code);
-
-		std::string ret = StrUtil::printf("%s.%s.2ND", exchg, pid.c_str());
-		return ret;
-	}
-
 	static inline std::string stdCodeToStdHotCode(const char* stdCode)
 	{
-		StringVector ay = StrUtil::split(stdCode, ".");
-		std::string stdHotCode = ay[0];
-		stdHotCode += ".";
-		stdHotCode += ay[1];
-		stdHotCode += ".HOT";
-		return stdHotCode;
+		std::size_t idx = find(stdCode, '.', true);
+		if (idx == std::string::npos)
+			return "";		
+		
+		std::string stdWrappedCode;
+		stdWrappedCode.resize(idx + strlen(SUFFIX_HOT) + 1);
+		strncpy((char*)stdWrappedCode.data(), stdCode, idx);
+		strcpy((char*)stdWrappedCode.data()+idx, SUFFIX_HOT);
+		return std::move(stdWrappedCode);
 	}
 
+	/*
+	 *	标准合约代码转次主力代码
+	 */
 	static inline std::string stdCodeToStd2ndCode(const char* stdCode)
 	{
-		StringVector ay = StrUtil::split(stdCode, ".");
-		std::string stdHotCode = ay[0];
-		stdHotCode += ".";
-		stdHotCode += ay[1];
-		stdHotCode += ".2ND";
-		return stdHotCode;
+		std::size_t idx = find(stdCode, '.', true);
+		if (idx == std::string::npos)
+			return "";
+
+		std::string stdWrappedCode;
+		stdWrappedCode.resize(idx + strlen(SUFFIX_2ND) + 1);
+		strncpy((char*)stdWrappedCode.data(), stdCode, idx);
+		strcpy((char*)stdWrappedCode.data() + idx, SUFFIX_2ND);
+		return std::move(stdWrappedCode);
 	}
 
-	static inline std::string stdFutOptCodeToBscCode(const char* stdCode)
+	/*
+	 *	标准期货期权代码转原代码
+	 *	-- 暂时没有地方调用 --
+	 */
+	static inline std::string stdFutOptCodeToRawCode(const char* stdCode)
 	{
 		std::string ret = stdCode;
 		auto pos = ret.find(".");
@@ -254,50 +302,55 @@ public:
 			StrUtil::replace(ret, ".", "-");
 		else
 			StrUtil::replace(ret, ".", "");
-		return ret;
+		return std::move(ret);
 	}
 
-	static inline std::string stdFutCodeToBscCode(const char* stdCode)
+	/*
+	 *	标准期货代码转原始代码
+	 *	-- 暂时没有地方调用 --
+	 */
+	static inline std::string stdFutCodeToRawCode(const char* stdCode)
 	{
 		StringVector ay = StrUtil::split(stdCode, ".");
 		std::string exchg = ay[0];
-		std::string bscCode = ay[1];
+		std::string rawCode = ay[1];
 		if (exchg.compare("CZCE") == 0 && ay[2].size() == 4)
-			bscCode += ay[2].substr(1);
+			rawCode += ay[2].substr(1);
 		else
-			bscCode += ay[2];
-		return bscCode;
+			rawCode += ay[2];
+		return std::move(rawCode);
 	}
 
-	static inline std::string stdStkCodeToBscCode(const char* stdCode)
+	/*
+	 *	标准股票代码转原始代码
+	 *	-- 暂时没有地方调用 --
+	 */
+	static inline std::string stdStkCodeToRawCode(const char* stdCode)
 	{
-		StringVector ay = StrUtil::split(stdCode, ".");
-		std::string exchg = ay[0];
-		std::string bscCode;
-		if (exchg.compare("SSE") == 0)
-			bscCode = "SH";
-		else
-			bscCode = "SZ";
-
-		if (ay.size() == 2)
-			bscCode += ay[1];
-		else
-			bscCode += ay[2];
-		return bscCode;
+		auto idx = find(stdCode, '.', true);
+		return std::move(stdCode + idx + 1);
 	}
 
-	static inline std::string stdCodeToBscCode(const char* stdCode)
+	/*
+	 *	标准代码转成原始代码
+	 *	-- 暂时没有地方调用 -- 
+	 */
+	static inline std::string stdCodeToRawCode(const char* stdCode)
 	{
 		if (isStdStkCode(stdCode))
-			return stdStkCodeToBscCode(stdCode);
+			return stdStkCodeToRawCode(stdCode);
 		else if (isStdFutOptCode(stdCode))
-			return stdFutOptCodeToBscCode(stdCode);
+			return stdFutOptCodeToRawCode(stdCode);
 		else
-			return stdFutCodeToBscCode(stdCode);
+			return stdFutCodeToRawCode(stdCode);
 	}
 
-	static inline void extractStdFutCode(const char* stdCode, CodeInfo& codeInfo)
+	/*
+	 *	提取标准期货合约代码的信息
+	 */
+	static inline CodeInfo extractStdFutCode(const char* stdCode)
 	{
+		CodeInfo codeInfo;
 		codeInfo._hotflag = CodeHelper::isStdFutHotCode(stdCode) ? 1 : (CodeHelper::isStdFut2ndCode(stdCode) ? 2 : 0);
 		StringVector ay = StrUtil::split(stdCode, ".");
 		strcpy(codeInfo._exchg, ay[0].c_str());
@@ -307,30 +360,37 @@ public:
 		{
 			if (strcmp(codeInfo._exchg, "CZCE") == 0 && ay[2].size() == 4)
 			{
-				//bscCode += ay[2].substr(1);
+				//rawCode += ay[2].substr(1);
 				strcat(codeInfo._code + strlen(codeInfo._code), ay[2].substr(1).c_str());
 			}
 			else
 			{
-				//bscCode += ay[2];
+				//rawCode += ay[2];
 				strcat(codeInfo._code + strlen(codeInfo._code), ay[2].c_str());
 			}
 		}
 		//commID = ay[1];
 		strcpy(codeInfo._product, ay[1].c_str());
+		return std::move(codeInfo);
 	}
 
-	static inline void extractStdStkCode(const char* stdCode, CodeInfo& codeInfo)
+	/*
+	 *	提取标准股票代码的信息
+	 */
+	static inline CodeInfo extractStdStkCode(const char* stdCode)
 	{
+		CodeInfo codeInfo;
+
 		StringVector ay = StrUtil::split(stdCode, ".");
 		codeInfo._category = CC_Stock;
-		//exchg = ay[0];
 		strcpy(codeInfo._exchg, ay[0].c_str());
-		if (ay.size() > 2)
+		//By Wesley @ 2021.12.22
+		//不再兼容简写的股票代码，如SSE.600000
+		//if (ay.size() > 2)
 		{
 			//commID = ay[1];
 			strcpy(codeInfo._product, ay[1].c_str());
-			//bscCode = ay[2];
+			//rawCode = ay[2];
 			if (ay[2].back() == 'Q')
 			{
 				strcpy(codeInfo._code, ay[2].substr(0, ay[2].size() - 1).c_str());
@@ -347,26 +407,9 @@ public:
 				codeInfo._exright = 0;
 			}
 		}
-		else
-		{
-			//commID = "STK";
-			bool isSH = strcmp(codeInfo._exchg, "SSE") == 0;
-			bool isIdx = (isSH && ay[1][0] == '0') || (!isSH && strncmp(ay[1].c_str(), "39", 2) == 0);//是否是指数,上交所的指数以'0'开头,深交所以'39'开头
-			strcpy(codeInfo._product, isIdx ? "IDX" : "STK");
-			//bscCode = ay[1];
-			if (ay[1].back() == 'Q')
-			{
-				strcpy(codeInfo._code, ay[1].substr(0, ay[1].size() - 1).c_str());
-				codeInfo._exright = true;
-			}
-			else
-			{
-				strcpy(codeInfo._code, ay[1].c_str());
-				codeInfo._exright = false;
-			}
-		}
-	}
 
+		return std::move(codeInfo);
+	}
 
 	static inline int indexCodeMonth(const char* code)
 	{
@@ -385,8 +428,13 @@ public:
 		return -1;
 	}
 
-	static inline void extractStdFutOptCode(const char* stdCode, CodeInfo& codeInfo)
+	/*
+	 *	提取标准期货期权代码的信息
+	 */
+	static inline CodeInfo extractStdFutOptCode(const char* stdCode)
 	{
+		CodeInfo codeInfo;
+
 		StringVector ay = StrUtil::split(stdCode, ".");
 		strcpy(codeInfo._exchg, ay[0].c_str());
 		codeInfo._category = CC_FutOption;
@@ -415,32 +463,27 @@ public:
 			strncpy(codeInfo._product, ay[1].c_str(), mpos);
 			strcat(codeInfo._product, "_o");
 		}
+
+		return std::move(codeInfo);
 	}
 
-	static inline void extractStdCode(const char* stdCode, CodeInfo& codeInfo)
+	/*
+	 *	提起标准代码的信息
+	 */
+	static CodeInfo extractStdCode(const char* stdCode)
 	{
 		if (isStdStkCode(stdCode))
 		{
-			extractStdStkCode(stdCode, codeInfo);
+			return std::move(extractStdStkCode(stdCode));
 		}
 		else if(isStdFutOptCode(stdCode))
 		{
-			extractStdFutOptCode(stdCode, codeInfo);
+			return std::move(extractStdFutOptCode(stdCode));
 		}
 		else
 		{
-			extractStdFutCode(stdCode, codeInfo);
+			return std::move(extractStdFutCode(stdCode));
 		}
-	}
-
-	static inline bool	isStdFutHotCode(const char* stdCode)
-	{
-		return StrUtil::endsWith(stdCode, ".HOT", false);
-	}
-
-	static inline bool	isStdFut2ndCode(const char* stdCode)
-	{
-		return StrUtil::endsWith(stdCode, ".2ND", false);
 	}
 };
 

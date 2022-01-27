@@ -18,13 +18,13 @@
     <ClCompile Include="WtExeFact.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
-    <ClCompile Include="WtSimpExeUnit.cpp">
-      <Filter>源文件</Filter>
-    </ClCompile>
     <ClCompile Include="WtTWapExeUnit.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="WtOrdMon.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="WtMinImpactExeUnit.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
@@ -32,13 +32,13 @@
     <ClInclude Include="WtExeFact.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="WtSimpExeUnit.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="WtTWapExeUnit.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="WtOrdMon.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="WtMinImpactExeUnit.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

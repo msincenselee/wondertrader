@@ -41,9 +41,21 @@ public:
 	virtual void on_tick(const char* stdCode, WTSTickData* newTick, bool bEmitStrategy = true) = 0;
 	virtual void on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar) = 0;
 	virtual bool on_schedule(uint32_t curDate, uint32_t curTime) = 0;
+	/*
+	 *	回测结束事件
+	 *	只在回测下才会触发
+	 */
+	virtual void on_bactest_end() {};
+
+	/*
+	 *	重算结束
+	 *	设计目的是要把on_calculate分成两步
+	 *	方便一些外挂的逻辑接入进来，可以在on_calculate_done执行信号
+	 */
+	virtual void on_calculate_done(uint32_t curDate, uint32_t curTime) { };
 
 	virtual void on_bar_close(const char* stdCode, const char* period, WTSBarStruct* newBar) = 0;
-	virtual void on_mainkline_updated(uint32_t curDate, uint32_t curTime) = 0;
+	virtual void on_calculate(uint32_t curDate, uint32_t curTime) = 0;
 	virtual void on_tick_updated(const char* stdCode, WTSTickData* newTick){}
 
 	virtual void enum_position(FuncEnumCtaPosCallBack cb) = 0;
@@ -54,7 +66,13 @@ public:
 	virtual void stra_exit_long(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) = 0;
 	virtual void stra_exit_short(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) = 0;
 
-	virtual double stra_get_position(const char* stdCode, const char* userTag = "") = 0;
+	/*
+	 *	获取当前持仓
+	 *	@stdCode	合约代码
+	 *	@userTag	下单标记，如果下单标记为空，则读取持仓汇总，如果下单标记不为空，则读取对应的持仓明细
+	 *	@bOnlyValid	是否只读可用持仓，默认为false，只有当userTag为空时生效，主要针对T+1的品种
+	 */
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") = 0;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) = 0;
 	virtual double stra_get_price(const char* stdCode) = 0;
 
@@ -82,7 +100,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) = 0;
 
-	virtual void stra_log_text(const char* fmt, ...) = 0;
+	virtual void stra_log_info(const char* fmt, ...) = 0;
+	virtual void stra_log_debug(const char* fmt, ...) = 0;
+	virtual void stra_log_error(const char* fmt, ...) = 0;
 
 	virtual void stra_save_user_data(const char* key, const char* val){}
 

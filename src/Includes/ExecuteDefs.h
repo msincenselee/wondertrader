@@ -81,7 +81,7 @@ public:
 	 *
 	 *	返回值	本地订单号数组: 一个买入操作可能会拆成最多3个订单发出
 	 */
-	virtual OrderIDs buy(const char* stdCode, double price, double qty) = 0;
+	virtual OrderIDs buy(const char* stdCode, double price, double qty, bool bForceClose = false) = 0;
 
 	/*
 	*	卖出接口
@@ -91,7 +91,7 @@ public:
 	*
 	*	返回值	本地订单号数组: 一个买入操作可能会拆成最多3个订单发出
 	*/
-	virtual OrderIDs sell(const char* stdCode, double price, double qty) = 0;
+	virtual OrderIDs sell(const char* stdCode, double price, double qty, bool bForceClose = false) = 0;
 
 	/*
 	 *	根据本地订单号撤单
@@ -171,10 +171,16 @@ public:
 public:
 	/*
 	 *	设置新的目标仓位
-	 *	code	合约代码
+	 *	stdCode	合约代码
 	 *	newVol	新的目标仓位
 	 */
 	virtual void set_position(const char* stdCode, double newVol) = 0;
+
+	/*
+	 *	清理全部持仓，锁仓的情况下也要清理
+	 *	stdCode	合约代码	
+	 */
+	virtual void clear_all_position(const char* stdCode){}
 
 	/*
 	 *	tick数据回调

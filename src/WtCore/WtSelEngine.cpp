@@ -12,9 +12,7 @@
 #include "../Includes/WTSVariant.hpp"
 #include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/WTSContractInfo.hpp"
-#include "../Includes/WTSDataDef.hpp"
 #include "../Share/CodeHelper.hpp"
-#include "../Share/StdUtils.hpp"
 #include "../Share/decimal.h"
 
 #include <rapidjson/document.h>
@@ -92,15 +90,7 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 	_data_mgr->handle_push_quote(stdCode, curTick);
 
 	//如果是真实代码, 则要传递给执行器
-	auto it = _ticksubed_raw_codes.find(stdCode);
-	if (it != _ticksubed_raw_codes.end())
 	{
-		//是否主力合约代码的标记, 主要用于给执行器发数据的
-		//for (auto it = _executers.begin(); it != _executers.end(); it++)
-		//{
-		//	WtExecuterPtr& executer = (*it);
-		//	executer->on_tick(stdCode, curTick);
-		//}
 		_exec_mgr.handle_tick(stdCode, curTick);
 	}
 
@@ -277,9 +267,9 @@ void WtSelEngine::run(bool bAsync /*= false*/)
 	_tm_ticker->run();
 }
 
-void WtSelEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr)
+void WtSelEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr, EventNotifier* notifier /* = NULL */)
 {
-	WtEngine::init(cfg, bdMgr, dataMgr, hotMgr);
+	WtEngine::init(cfg, bdMgr, dataMgr, hotMgr, notifier);
 
 	_cfg = cfg;
 	_cfg->retain();
@@ -327,17 +317,15 @@ void WtSelEngine::handle_pos_change(const char* stdCode, double diffQty)
 	std::string realCode = stdCode;
 	if (CodeHelper::isStdFutHotCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
-		CodeHelper::CodeInfo cInfo;
-		CodeHelper::extractStdCode(stdCode, cInfo);
+		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-		realCode = CodeHelper::bscFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
 	}
 
 	PosInfo& pItem = _pos_map[realCode];
@@ -355,15 +343,9 @@ void WtSelEngine::handle_pos_change(const char* stdCode, double diffQty)
 		targetPos = decimal::rnd(abs(targetPos)*_risk_volscale)*symbol;
 	}
 
-	push_task([this, realCode, targetPos](){
-		append_signal(realCode.c_str(), targetPos);
-	});
+	append_signal(realCode.c_str(), targetPos, false);
+	save_datas();
 
-	//for (auto it = _executers.begin(); it != _executers.end(); it++)
-	//{
-	//	WtExecuterPtr& executer = (*it);
-	//	executer->on_position_changed(realCode.c_str(), targetPos);
-	//}
 	_exec_mgr.handle_pos_change(realCode.c_str(), targetPos);
 }
 

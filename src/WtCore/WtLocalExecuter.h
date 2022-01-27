@@ -102,7 +102,6 @@ public:
 
 private:
 	ExecuteUnitPtr	getUnit(const char* code, bool bAutoCreate = true);
-
 public:
 	//////////////////////////////////////////////////////////////////////////
 	//ExecuteContext
@@ -114,8 +113,8 @@ public:
 	virtual OrderMap*	getOrders(const char* code) override;
 	virtual double		getUndoneQty(const char* code) override;
 
-	virtual OrderIDs	buy(const char* code, double price, double qty) override;
-	virtual OrderIDs	sell(const char* code, double price, double qty) override;
+	virtual OrderIDs	buy(const char* code, double price, double qty, bool bForceClose = false) override;
+	virtual OrderIDs	sell(const char* code, double price, double qty, bool bForceClose = false) override;
 	virtual bool		cancel(uint32_t localid) override;
 	virtual OrderIDs	cancel(const char* code, bool isBuy, double qty) override;
 	virtual void		writeLog(const char* fmt, ...) override;
@@ -155,7 +154,7 @@ public:
 	/*
 	 *	
 	 */
-	virtual void on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail) override;
+	virtual void on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail, uint32_t tradingday) override;
 
 	/*
 	 *	
@@ -180,8 +179,12 @@ private:
 	IDataManager*		_data_mgr;
 	WTSVariant*			_config;
 
-	double			_scale;
-	bool			_channel_ready;
+	double				_scale;		//放大倍数
+	bool				_auto_clear;//是否自动清理上一期的主力合约头寸	
+	bool				_channel_ready;
+
+	faster_hashset<std::string>	_clear_includes;	//自动清理包含品种
+	faster_hashset<std::string>	_clear_excludes;	//自动清理排除品种
 
 	faster_hashmap<std::string, double> _target_pos;
 

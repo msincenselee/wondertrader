@@ -41,6 +41,11 @@ public:
 	virtual void on_tick(const char* stdCode, WTSTickData* newTick, bool bEmitStrategy = true) = 0;
 	virtual void on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar) = 0;
 	virtual bool on_schedule(uint32_t curDate, uint32_t curTime, uint32_t fireTime) = 0;
+	/*
+	 *	回测结束事件
+	 *	只在回测下才会触发
+	 */
+	virtual void on_bactest_end() {};
 
 	virtual void on_bar_close(const char* stdCode, const char* period, WTSBarStruct* newBar) = 0;
 	virtual void on_tick_updated(const char* stdCode, WTSTickData* newTick){}
@@ -49,7 +54,7 @@ public:
 	virtual void enum_position(FuncEnumSelPositionCallBack cb) = 0;
 
 	//策略接口
-	virtual double stra_get_position(const char* stdCode, const char* userTag = "") = 0;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") = 0;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "") = 0;
 
 	virtual double stra_get_price(const char* stdCode) = 0;
@@ -65,7 +70,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) = 0;
 
-	virtual void stra_log_text(const char* fmt, ...) = 0;
+	virtual void stra_log_info(const char* fmt, ...) = 0;
+	virtual void stra_log_debug(const char* fmt, ...) = 0;
+	virtual void stra_log_error(const char* fmt, ...) = 0;
 
 	virtual void stra_save_user_data(const char* key, const char* val){}
 

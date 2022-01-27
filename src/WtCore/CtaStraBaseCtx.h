@@ -11,6 +11,7 @@
 #include "../Includes/ICtaStraCtx.h"
 #include "../Includes/FasterDefs.h"
 #include "../Includes/WTSDataDef.hpp"
+
 #include "../Share/BoostFile.hpp"
 
 class CtaStrategy;
@@ -59,9 +60,9 @@ public:
 private:
 	void	init_outputs();
 	inline void log_signal(const char* stdCode, double target, double price, uint64_t gentime, const char* usertag = "");
-	inline void	log_trade(const char* stdCode, bool isLong, bool isOpen, uint64_t curTime, double price, double qty, const char* userTag = "", double fee = 0.0);
+	inline void	log_trade(const char* stdCode, bool isLong, bool isOpen, uint64_t curTime, double price, double qty, const char* userTag = "", double fee = 0.0, uint32_t barNo = 0);
 	inline void	log_close(const char* stdCode, bool isLong, uint64_t openTime, double openpx, uint64_t closeTime, double closepx, double qty,
-		double profit, double totalprofit = 0, const char* enterTag = "", const char* exitTag = "");
+		double profit, double totalprofit = 0, const char* enterTag = "", const char* exitTag = "", uint32_t openBarNo = 0, uint32_t closeBarNo = 0);
 
 	void	save_data(uint32_t flag = 0xFFFFFFFF);
 	void	load_data(uint32_t flag = 0xFFFFFFFF);
@@ -98,7 +99,7 @@ public:
 	virtual void stra_exit_long(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual void stra_exit_short(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 
-	virtual double stra_get_position(const char* stdCode, const char* userTag = "") override;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") override;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual double stra_get_price(const char* stdCode) override;
 
@@ -126,7 +127,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
-	virtual void stra_log_text(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* fmt, ...) override;
+	virtual void stra_log_debug(const char* fmt, ...) override;
+	virtual void stra_log_error(const char* fmt, ...) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
@@ -165,6 +168,7 @@ protected:
 		double		_max_loss;
 		double		_profit;
 		char		_opentag[32];
+		uint32_t	_open_barno;
 
 		_DetailInfo()
 		{
@@ -181,6 +185,9 @@ protected:
 		uint64_t	_last_entertime;
 		uint64_t	_last_exittime;
 
+		double		_frozen;
+		uint32_t	_frozen_date;
+
 		std::vector<DetailInfo> _details;
 
 		_PosInfo()
@@ -190,6 +197,8 @@ protected:
 			_dynprofit = 0;
 			_last_entertime = 0;
 			_last_exittime = 0;
+			_frozen = 0;
+			_frozen_date = 0;
 		}
 	} PosInfo;
 	typedef faster_hashmap<std::string, PosInfo> PositionMap;
@@ -221,6 +230,7 @@ protected:
 
 	CondEntrustMap	_condtions;
 	uint64_t		_last_cond_min;	//上次设置条件单的时间
+	uint32_t		_last_barno;	//上次设置的K线编号
 
 	//是否处于调度中的标记
 	bool			_is_in_schedule;	//是否在自动调度中

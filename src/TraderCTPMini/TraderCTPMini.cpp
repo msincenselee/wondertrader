@@ -8,78 +8,22 @@
  * \brief 
  */
 #include "TraderCTPMini.h"
+
 #include "../Includes/WTSError.hpp"
 #include "../Includes/WTSContractInfo.hpp"
 #include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/WTSTradeDef.hpp"
 #include "../Includes/WTSDataDef.hpp"
 #include "../Includes/WTSParams.hpp"
-#include "../Share/TimeUtils.hpp"
 #include "../Includes/IBaseDataMgr.h"
+
+#include "../Share/ModuleHelper.hpp"
 #include "../Share/decimal.h"
-#include "../Share/StrUtil.hpp"
 
 #include <boost/filesystem.hpp>
 
-#ifdef _WIN32
-#include <wtypes.h>
-HMODULE	g_dllModule = NULL;
-
-BOOL APIENTRY DllMain(
-	HANDLE hModule,
-	DWORD  ul_reason_for_call,
-	LPVOID lpReserved
-	)
-{
-	switch (ul_reason_for_call)
-	{
-	case DLL_PROCESS_ATTACH:
-		g_dllModule = (HMODULE)hModule;
-		break;
-	}
-	return TRUE;
-}
-#else
-#include <dlfcn.h>
-
-char PLATFORM_NAME[] = "UNIX";
-
-std::string	g_moduleName;
-
-__attribute__((constructor))
-void on_load(void) {
-	Dl_info dl_info;
-	dladdr((void *)on_load, &dl_info);
-	g_moduleName = dl_info.dli_fname;
-}
-#endif
-
-std::string getBinDir()
-{
-	static std::string _bin_dir;
-	if (_bin_dir.empty())
-	{
-
-
-#ifdef _WIN32
-		char strPath[MAX_PATH];
-		GetModuleFileName(g_dllModule, strPath, MAX_PATH);
-
-		_bin_dir = StrUtil::standardisePath(strPath, false);
-#else
-		_bin_dir = g_moduleName;
-#endif
-
-		uint32_t nPos = _bin_dir.find_last_of('/');
-		_bin_dir = _bin_dir.substr(0, nPos + 1);
-	}
-
-	return _bin_dir;
-}
-
 const char* ENTRUST_SECTION = "entrusts";
 const char* ORDER_SECTION = "orders";
-
 
 uint32_t strToTime(const char* strTime)
 {
@@ -121,6 +65,7 @@ TraderCTPMini::TraderCTPMini()
 	, m_ayOrders(NULL)
 	, m_ayTrades(NULL)
 	, m_ayPosDetail(NULL)
+	, m_ayFunds(NULL)
 	, m_wrapperState(WS_NOTLOGIN)
 	, m_uLastQryTime(0)
 	, m_iRequestID(0)
@@ -148,7 +93,6 @@ bool TraderCTPMini::init(WTSParams* params)
 	m_strAuthCode = params->getCString("authcode");
 
 	m_strFlowDir = params->getCString("flowdir");
-
 	if (m_strFlowDir.empty())
 		m_strFlowDir = "CTPMiniTDFlow";
 
@@ -158,7 +102,7 @@ bool TraderCTPMini::init(WTSParams* params)
 	if (param != NULL)
 		m_strModule = getBinDir() + DLLHelper::wrap_module(param->asCString(), "lib");
 	else
-		m_strModule = DLLHelper::wrap_module("thosttraderapi", "lib");
+		m_strModule = getBinDir() + DLLHelper::wrap_module("thosttraderapi", "lib");
 
 	m_hInstCTP = DLLHelper::load_library(m_strModule.c_str());
 #ifdef _WIN32
@@ -197,12 +141,15 @@ void TraderCTPMini::release()
 
 	if (m_ayTrades)
 		m_ayTrades->clear();
+
+	if (m_ayFunds)
+		m_ayFunds->clear();
 }
 
 void TraderCTPMini::connect()
 {
 	std::stringstream ss;
-	ss << "./ctpminidata/flows/" << m_strBroker << "/" << m_strUser << "/";
+	ss << m_strFlowDir << "flows/" << m_strBroker << "/" << m_strUser << "/";
 	boost::filesystem::create_directories(ss.str().c_str());
 	m_pUserAPI = m_funcCreator(ss.str().c_str());
 	m_pUserAPI->RegisterSpi(this);
@@ -401,6 +348,9 @@ int TraderCTPMini::orderInsert(WTSEntrust* entrust)
 	}
 
 	WTSContractInfo* ct = m_bdMgr->getContract(entrust->getCode(), entrust->getExchg());
+	if (ct == NULL)
+		return -1;
+
 	WTSCommodityInfo* commInfo = m_bdMgr->getCommodity(ct);
 
 	///用户代码
@@ -601,7 +551,7 @@ void TraderCTPMini::OnFrontDisconnected(int nReason)
 
 void TraderCTPMini::OnHeartBeatWarning(int nTimeLapse)
 {
-
+	m_sink->handleTraderLog(LL_DEBUG, "[TraderCTPMini][%s-%s] Heartbeating...", m_strBroker.c_str(), m_strUser.c_str());
 }
 
 void TraderCTPMini::OnRspAuthenticate(CThostFtdcRspAuthenticateField *pRspAuthenticateField, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast)
@@ -612,7 +562,7 @@ void TraderCTPMini::OnRspAuthenticate(CThostFtdcRspAuthenticateField *pRspAuthen
 	}
 	else
 	{
-		m_sink->handleTraderLog(LL_INFO, "[TraderCTPMini][%s-%s] Authentication failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
+		m_sink->handleTraderLog(LL_ERROR, "[TraderCTPMini][%s-%s] Authentication failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
 		m_wrapperState = WS_LOGINFAILED;
 
 		if (m_sink)
@@ -638,7 +588,7 @@ void TraderCTPMini::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin, C
 			m_strBroker.c_str(), m_strUser.c_str(), m_strAppID.c_str(), m_sessionID, pRspUserLogin->LoginTime);
 
 		std::stringstream ss;
-		ss << "./ctpdata/local/" << m_strBroker << "/";
+		ss << m_strFlowDir << "local/" << m_strBroker << "/";
 		std::string path = StrUtil::standardisePath(ss.str());
 		if (!StdFile::exists(path.c_str()))
 			boost::filesystem::create_directories(path.c_str());
@@ -666,7 +616,7 @@ void TraderCTPMini::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin, C
 	}
 	else
 	{
-		m_sink->handleTraderLog(LL_INFO, "[TraderCTPMini][%s-%s] Login failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
+		m_sink->handleTraderLog(LL_ERROR, "[TraderCTPMini][%s-%s] Login failed: %s", m_strBroker.c_str(), m_strUser.c_str(), pRspInfo->ErrorMsg);
 		m_wrapperState = WS_LOGINFAILED;
 
 		if (m_sink)
@@ -717,36 +667,36 @@ void TraderCTPMini::OnRspQryTradingAccount(CThostFtdcTradingAccountField *pTradi
 		//triggerQuery();
 	}
 
-	if (bIsLast && !IsErrorRspInfo(pRspInfo))
+	if (!IsErrorRspInfo(pRspInfo) && pTradingAccount)
 	{
+		if (NULL == m_ayFunds)
+			m_ayFunds = WTSArray::create();
+
 		WTSAccountInfo* accountInfo = WTSAccountInfo::create();
 		accountInfo->setDescription(StrUtil::printf("%s-%s", m_strBroker.c_str(), m_strUser.c_str()).c_str());
 		//accountInfo->setUsername(m_strUserName.c_str());
-		if(pTradingAccount)
-		{
-			accountInfo->setPreBalance(pTradingAccount->PreBalance);
-			accountInfo->setCloseProfit(pTradingAccount->CloseProfit);
-			accountInfo->setDynProfit(pTradingAccount->PositionProfit);
-			accountInfo->setMargin(pTradingAccount->CurrMargin);
-			accountInfo->setAvailable(pTradingAccount->Available);
-			accountInfo->setCommission(pTradingAccount->Commission);
-			accountInfo->setFrozenMargin(pTradingAccount->FrozenMargin);
-			accountInfo->setFrozenCommission(pTradingAccount->FrozenCommission);
-			accountInfo->setDeposit(pTradingAccount->Deposit);
-			accountInfo->setWithdraw(pTradingAccount->Withdraw);
-			accountInfo->setBalance(accountInfo->getPreBalance() + accountInfo->getCloseProfit() - accountInfo->getCommission() + accountInfo->getDeposit() - accountInfo->getWithdraw());
-		}
-		else if(m_sink)
-			m_sink->handleTraderLog(LL_ERROR, "[TraderCTPMini][%s-%s] Account data is NULL", m_strBroker.c_str(), m_strUser.c_str());
+		accountInfo->setPreBalance(pTradingAccount->PreBalance);
+		accountInfo->setCloseProfit(pTradingAccount->CloseProfit);
+		accountInfo->setDynProfit(pTradingAccount->PositionProfit);
+		accountInfo->setMargin(pTradingAccount->CurrMargin);
+		accountInfo->setAvailable(pTradingAccount->Available);
+		accountInfo->setCommission(pTradingAccount->Commission);
+		accountInfo->setFrozenMargin(pTradingAccount->FrozenMargin);
+		accountInfo->setFrozenCommission(pTradingAccount->FrozenCommission);
+		accountInfo->setDeposit(pTradingAccount->Deposit);
+		accountInfo->setWithdraw(pTradingAccount->Withdraw);
+		accountInfo->setBalance(accountInfo->getPreBalance() + accountInfo->getCloseProfit() - accountInfo->getCommission() + accountInfo->getDeposit() - accountInfo->getWithdraw());
 		
 		accountInfo->setCurrency("CNY");
+		m_ayFunds->append(accountInfo, false);
+	}
 
-		WTSArray * ay = WTSArray::create();
-		ay->append(accountInfo, false);
+	if(bIsLast)
+	{
 		if (m_sink)
-			m_sink->onRspAccount(ay);
+			m_sink->onRspAccount(m_ayFunds);
 
-		ay->release();
+		m_ayFunds->clear();
 	}
 }
 
@@ -764,9 +714,9 @@ void TraderCTPMini::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pI
 			m_mapPosition = PositionMap::create();
 
 		WTSContractInfo* contract = m_bdMgr->getContract(pInvestorPosition->InstrumentID);
-		WTSCommodityInfo* commInfo = m_bdMgr->getCommodity(contract);
 		if (contract)
 		{
+			WTSCommodityInfo* commInfo = m_bdMgr->getCommodity(contract);
 			std::string key = StrUtil::printf("%s-%d", pInvestorPosition->InstrumentID, pInvestorPosition->PosiDirection);
 			WTSPositionItem* pos = (WTSPositionItem*)m_mapPosition->get(key);
 			if(pos == NULL)
@@ -810,11 +760,11 @@ void TraderCTPMini::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pI
 						int availNew = pInvestorPosition->Position;
 						if (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Long)
 						{
-							availNew -= pInvestorPosition->LongFrozen;
+							availNew -= pInvestorPosition->ShortFrozen;
 						}
 						else
 						{
-							availNew -= pInvestorPosition->ShortFrozen;
+							availNew -= pInvestorPosition->LongFrozen;
 						}
 						if (availNew < 0)
 							availNew = 0;
@@ -825,11 +775,11 @@ void TraderCTPMini::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pI
 						int availPre = pInvestorPosition->Position;
 						if (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Long)
 						{
-							availPre -= pInvestorPosition->LongFrozen;
+							availPre -= pInvestorPosition->ShortFrozen;
 						}
 						else
 						{
-							availPre -= pInvestorPosition->ShortFrozen;
+							availPre -= pInvestorPosition->LongFrozen;
 						}
 						if (availPre < 0)
 							availPre = 0;
@@ -841,11 +791,11 @@ void TraderCTPMini::OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pI
 					int availNew = pInvestorPosition->TodayPosition;
 					if (pInvestorPosition->PosiDirection == THOST_FTDC_PD_Long)
 					{
-						availNew -= pInvestorPosition->LongFrozen;
+						availNew -= pInvestorPosition->ShortFrozen;
 					}
 					else
 					{
-						availNew -= pInvestorPosition->ShortFrozen;
+						availNew -= pInvestorPosition->LongFrozen;
 					}
 					if (availNew < 0)
 						availNew = 0;
@@ -1131,10 +1081,30 @@ WTSOrderInfo* TraderCTPMini::makeOrderInfo(CThostFtdcOrderField* orderField)
 	pRet->setCode(orderField->InstrumentID);
 	pRet->setExchange(contract->getExchg());
 
-	pRet->setOrderDate(strtoul(orderField->InsertDate, NULL, 10));
+	/*
+	 *	By Wesley @ 2021.12.16
+	 *	mini返回的InsertDate是空，所以这里要改成用交易日来重算，但是夜盘很麻烦，只能大概处理一下了
+	 */
 	std::string strTime = orderField->InsertTime;
 	StrUtil::replace(strTime, ":", "");
 	uint32_t uTime = strtoul(strTime.c_str(), NULL, 10);
+
+	uint32_t insertDate = m_lDate;
+	uint32_t uHour = uTime / 10000;
+	//下单时间是夜盘，则直接用交易日倒推下单日期
+	if(uHour >= 21)
+	{
+		uint32_t wd = TimeUtils::getWeekDay(insertDate);
+		//如果是周一，则直接用上周五的日期
+		//因为节假日前一天不会有夜盘，所以只可能是周五
+		//如果不是周一，则直接用前一天的日期
+		if(wd == 1)
+			insertDate = TimeUtils::getNextDate(m_lDate, -3);
+		else
+			insertDate = TimeUtils::getNextDate(m_lDate, -1);
+	}
+	pRet->setOrderDate(insertDate);
+	
 	pRet->setOrderTime(TimeUtils::makeTime(pRet->getOrderDate(), strtoul(strTime.c_str(), NULL, 10) * 1000));
 
 	pRet->setOrderState(wrapOrderState(orderField->OrderStatus));
@@ -1220,24 +1190,25 @@ WTSTradeInfo* TraderCTPMini::makeTradeRecord(CThostFtdcTradeField *tradeField)
 	std::string strTime = tradeField->TradeTime;
 	StrUtil::replace(strTime, ":", "");
 	uint32_t uTime = strtoul(strTime.c_str(), NULL, 10);
-	uint32_t uDate = strtoul(tradeField->TradeDate, NULL, 10);
 
-	//if(uDate == m_pContractMgr->getTradingDate())
-	//{
-	//	//如果当前日期和交易日一致,且时间大于21点,说明是夜盘,也就是实际日期要单独计算
-	//	if (uTime / 10000 >= 21)
-	//	{
-	//		uDate = m_pMarketMgr->getPrevTDate(commInfo->getExchg(), uDate, 1);
-	//	}
-	//	else if(uTime <= 3)
-	//	{
-	//		//如果在3点以内,就要先获取上一个交易日,再获取下一个自然日
-	//		//这样做的目的是,遇到周五晚上的情况,可以处理过来
-	//		uDate = m_pMarketMgr->getPrevTDate(commInfo->getExchg(), uDate, 1);
-	//		uDate = TimeUtils::getNextDate(uDate);
-	//	}
-	//}
-
+	/*
+	 *	By Wesley @ 2021.12.16
+	 *	mini返回的InsertDate是空，所以这里要改成用交易日来重算，但是夜盘很麻烦，只能大概处理一下了
+	 */
+	uint32_t uDate = m_lDate;
+	uint32_t uHour = uTime / 10000;
+	//下单时间是夜盘，则直接用交易日倒推下单日期
+	if (uHour >= 21)
+	{
+		uint32_t wd = TimeUtils::getWeekDay(uDate);
+		//如果是周一，则直接用上周五的日期
+		//因为节假日前一天不会有夜盘，所以只可能是周五
+		//如果不是周一，则直接用前一天的日期
+		if (wd == 1)
+			uDate = TimeUtils::getNextDate(m_lDate, -3);
+		else
+			uDate = TimeUtils::getNextDate(m_lDate, -1);
+	}
 	pRet->setTradeDate(uDate);
 	pRet->setTradeTime(TimeUtils::makeTime(uDate, uTime * 1000));
 

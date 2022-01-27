@@ -9,6 +9,12 @@
  */
 #include <stdio.h>
 #include <iostream>
+#include <sys/timeb.h>
+#ifdef _MSC_VER
+#include <time.h>
+#else
+#include <sys/time.h>
+#endif
 
 #include "WTSLogger.h"
 #include "../Includes/ILogHandler.h"
@@ -24,35 +30,37 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/async.h>
 
-
 const char* DYN_PATTERN = "dyn_pattern";
 
 ILogHandler*		WTSLogger::m_logHandler	= NULL;
 WTSLogLevel			WTSLogger::m_logLevel	= LL_ALL;
 bool				WTSLogger::m_bStopped = false;
+bool				WTSLogger::m_bInited = false;
+bool				WTSLogger::m_bTpInited = false;
 SpdLoggerPtr		WTSLogger::m_rootLogger = NULL;
 WTSLogger::LogPatterns*	WTSLogger::m_mapPatterns = NULL;
 thread_local char	WTSLogger::m_buffer[];
+std::set<std::string>	WTSLogger::m_setDynLoggers;
 
 inline spdlog::level::level_enum str_to_level( const char* slvl)
 {
-	if(strcmp(slvl, "debug"))
+	if(wt_stricmp(slvl, "debug") == 0)
 	{
 		return spdlog::level::debug;
 	}
-	else if (strcmp(slvl, "info"))
+	else if (wt_stricmp(slvl, "info") == 0)
 	{
 		return spdlog::level::info;
 	}
-	else if (strcmp(slvl, "warn"))
+	else if (wt_stricmp(slvl, "warn") == 0)
 	{
 		return spdlog::level::warn;
 	}
-	else if (strcmp(slvl, "error"))
+	else if (wt_stricmp(slvl, "error") == 0)
 	{
 		return spdlog::level::err;
 	}
-	else if (strcmp(slvl, "fatal"))
+	else if (wt_stricmp(slvl, "fatal") == 0)
 	{
 		return spdlog::level::critical;
 	}
@@ -87,6 +95,17 @@ inline void format_impl(char* buf, const char* fmt, va_list& args)
 	{
 		buf[len] = '\0';
 	}
+}
+
+inline void print_timetag(bool bWithSpace = true)
+{
+	timeb now;
+	ftime(&now);
+
+	tm * tNow = localtime(&(now.time));
+	printf("[%d.%02d.%02d %02d:%02d:%02d]", tNow->tm_year + 1900, tNow->tm_mon + 1, tNow->tm_mday, tNow->tm_hour, tNow->tm_min, tNow->tm_sec);
+	if (bWithSpace)
+		printf(" ");
 }
 
 void WTSLogger::initLogger(const char* catName, WTSVariant* cfgLogger)
@@ -140,6 +159,12 @@ void WTSLogger::initLogger(const char* catName, WTSVariant* cfgLogger)
 	}
 	else
 	{
+		if(!m_bTpInited)
+		{
+			spdlog::init_thread_pool(8192, 2);
+			m_bTpInited = true;
+		}
+
 		auto logger = std::make_shared<spdlog::async_logger>(catName, sinks.begin(), sinks.end(), spdlog::thread_pool(), spdlog::async_overflow_policy::block);
 		logger->set_level(str_to_level(cfgLogger->getCString("level")));
 		spdlog::register_logger(logger);
@@ -148,6 +173,9 @@ void WTSLogger::initLogger(const char* catName, WTSVariant* cfgLogger)
 
 void WTSLogger::init(const char* propFile /* = "logcfg.json" */, bool isFile /* = true */, ILogHandler* handler /* = NULL */, WTSLogLevel logLevel /* = LL_INFO */)
 {
+	if (m_bInited)
+		return;
+
 	if (isFile && !StdFile::exists(propFile))
 		return;
 
@@ -193,6 +221,8 @@ void WTSLogger::init(const char* propFile /* = "logcfg.json" */, bool isFile /* 
 
 	m_logHandler = handler;
 	m_logLevel = logLevel;
+
+	m_bInited = true;
 }
 
 void WTSLogger::registerHandler(ILogHandler* handler /* = NULL */, WTSLogLevel logLevel /* = LL_ALL */)
@@ -216,10 +246,15 @@ void WTSLogger::debug(const char* format, ...)
 
 	va_list args;
 	va_start(args, format);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if(!m_bInited)
+	{
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	debug_imp(m_rootLogger, m_buffer);
 }
@@ -231,10 +266,16 @@ void WTSLogger::info(const char* format, ...)
 
 	va_list args;
 	va_start(args, format);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	info_imp(m_rootLogger, m_buffer);
 }
@@ -246,10 +287,16 @@ void WTSLogger::warn(const char* format, ...)
 
 	va_list args;
 	va_start(args, format);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	warn_imp(m_rootLogger, m_buffer);
 }
@@ -261,10 +308,16 @@ void WTSLogger::error(const char* format, ...)
 
 	va_list args;
 	va_start(args, format);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	error_imp(m_rootLogger, m_buffer);
 }
@@ -276,10 +329,16 @@ void WTSLogger::fatal(const char* format, ...)
 
 	va_list args;
 	va_start(args, format);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	fatal_imp(m_rootLogger, m_buffer);
 }
@@ -291,10 +350,16 @@ void WTSLogger::log(WTSLogLevel ll, const char* format, ...)
 
 	va_list args;
 	va_start(args, format);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	switch(ll)
 	{
@@ -383,6 +448,14 @@ void WTSLogger::log_raw(WTSLogLevel ll, const char* message)
 	if (m_logLevel > ll || m_bStopped)
 		return;
 
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(message);
+		printf("\r\n");
+		return;
+	}
+
 	auto logger = m_rootLogger;
 
 	if (logger)
@@ -426,9 +499,15 @@ void WTSLogger::vlog(WTSLogLevel ll, const char* format, va_list& args)
 	if (m_logLevel > ll || m_bStopped)
 		return;
 
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	switch (ll)
 	{
@@ -460,10 +539,16 @@ void WTSLogger::debug2(const char* catName, const char* format, ...)
 	va_list args;
 	va_start(args, format);  
 	auto logger = getLogger(catName);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	debug_imp(logger, m_buffer);
 }
@@ -476,10 +561,16 @@ void WTSLogger::info2(const char* catName, const char* format, ...)
 	va_list args;
 	va_start(args, format);
 	auto logger = getLogger(catName);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	info_imp(logger, m_buffer);
 }
@@ -492,10 +583,16 @@ void WTSLogger::warn2(const char* catName, const char* format, ...)
 	va_list args;
 	va_start(args, format);
 	auto logger = getLogger(catName);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	warn_imp(logger, m_buffer);
 }
@@ -508,10 +605,16 @@ void WTSLogger::error2(const char* catName, const char* format, ...)
 	va_list args;
 	va_start(args, format);
 	auto logger = getLogger(catName);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	error_imp(logger, m_buffer);
 }
@@ -524,10 +627,16 @@ void WTSLogger::fatal2(const char* catName, const char* format, ...)
 	va_list args;
 	va_start(args, format);
 	auto logger = getLogger(catName);
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
 	va_end(args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	fatal_imp(logger, m_buffer);
 }
@@ -551,6 +660,14 @@ void WTSLogger::log2_raw(const char* catName, WTSLogLevel ll, const char* messag
 		return;
 
 	auto logger = getLogger(catName);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	if (logger)
 	{
@@ -593,10 +710,15 @@ void WTSLogger::vlog2(const char* catName, WTSLogLevel ll, const char* format, v
 		return;
 
 	auto logger = getLogger(catName);
-
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	switch (ll)
 	{
@@ -639,10 +761,18 @@ void WTSLogger::vlog_dyn(const char* patttern, const char* catName, WTSLogLevel 
 		return;
 
 	auto logger = getLogger(catName, patttern);
+	if (!logger)
+		return;
 
-	//char szBuf[MAX_LOG_BUF_SIZE] = { 0 };
-	//vsprintf(szBuf, format, args);
 	format_impl(m_buffer, format, args);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	switch (ll)
 	{
@@ -672,6 +802,14 @@ void WTSLogger::log_dyn_raw(const char* patttern, const char* catName, WTSLogLev
 		return;
 
 	auto logger = getLogger(catName, patttern);
+
+	if (!m_bInited)
+	{
+		print_timetag(true);
+		printf(m_buffer);
+		printf("\r\n");
+		return;
+	}
 
 	if (logger)
 	{
@@ -714,8 +852,22 @@ SpdLoggerPtr WTSLogger::getLogger(const char* logger, const char* pattern /* = "
 
 		initLogger(logger, cfg);
 
+		m_setDynLoggers.insert(logger);
+
 		return spdlog::get(logger);
 	}
 
 	return ret;
+}
+
+void WTSLogger::freeAllDynLoggers()
+{
+	for(const std::string& logger : m_setDynLoggers)
+	{
+		auto loggerPtr = spdlog::get(logger);
+		if(!loggerPtr)
+			continue;
+
+		spdlog::drop(logger);
+	}
 }

@@ -17,8 +17,7 @@
 #include "../Includes/ITraderApi.h"
 #include "../Includes/WTSCollection.hpp"
 
-//CTP 6.3.15
-#include "./ThostTraderApi/ThostFtdcTraderApi.h"
+#include "../API/CTP6.3.15/ThostFtdcTraderApi.h"
 
 #include "../Share/IniHelper.hpp"
 #include "../Share/StdUtils.hpp"
@@ -88,6 +87,8 @@ public:
 
 	virtual int queryTrades() override;
 
+	virtual int querySettlement(uint32_t uDate) override;
+
 
 	//////////////////////////////////////////////////////////////////////////
 	//CTP交易接口实现
@@ -115,6 +116,8 @@ public:
 	virtual void OnRspOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
 
 	virtual void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInvestorPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
+
+	virtual void OnRspQrySettlementInfo(CThostFtdcSettlementInfoField *pSettlementInfo, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
 
 	///请求查询成交响应
 	virtual void OnRspQryTrade(CThostFtdcTradeField *pTrade, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
@@ -178,6 +181,8 @@ protected:
 	bool			m_bQuickStart;
 
 	std::string		m_strTag;
+
+	std::string		m_strSettleInfo;
 
 	std::string		m_strUserName;
 	std::string		m_strFlowDir;

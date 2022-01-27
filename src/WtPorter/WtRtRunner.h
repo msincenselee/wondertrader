@@ -12,6 +12,9 @@
 
 #include "PorterDefs.h"
 
+#include "../Includes/ILogHandler.h"
+#include "../Includes/IDataReader.h"
+
 #include "../WtCore/EventNotifier.h"
 #include "../WtCore/CtaStrategyMgr.h"
 #include "../WtCore/HftStrategyMgr.h"
@@ -43,11 +46,26 @@ typedef enum tagEngineType
 	ET_SEL			//选股引擎
 } EngineType;
 
-class WtRtRunner : public IEngineEvtListener
+class WtRtRunner : public IEngineEvtListener, public ILogHandler, public IHisDataLoader
 {
 public:
 	WtRtRunner();
 	~WtRtRunner();
+
+public:
+	//////////////////////////////////////////////////////////////////////////
+	//IBtDataLoader
+	virtual bool loadFinalHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb) override;
+
+	virtual bool loadRawHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb) override;
+
+	virtual bool loadAllAdjFactors(void* obj, FuncReadFactors cb) override;
+
+	virtual bool loadAdjFactors(void* obj, const char* stdCode, FuncReadFactors cb) override;
+
+	void feedRawBars(WTSBarStruct* bars, uint32_t count);
+
+	void feedAdjFactors(const char* stdCode, uint32_t* dates, double* factors, uint32_t count);
 
 public:
 	/*
@@ -61,8 +79,6 @@ public:
 
 	void release();
 
-	void dump_bars(const char* stdCode, const char* period, FuncDumpBarsCallback cb, FuncCountDataCallback cbCnt);
-
 	void registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt);
 	void registerSelCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt);
 	void registerHftCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraBarCallback cbBar,
@@ -75,6 +91,13 @@ public:
 
 	void registerExecuterPorter(FuncExecInitCallback cbInit, FuncExecCmdCallback cbExec);
 
+	void		registerExtDataLoader(FuncLoadFnlBars fnlBarLoader, FuncLoadRawBars rawBarLoader, FuncLoadAdjFactors fctLoader, FuncLoadRawTicks tickLoader = NULL)
+	{
+		_ext_fnl_bar_loader = fnlBarLoader;
+		_ext_raw_bar_loader = rawBarLoader;
+		_ext_adj_fct_loader = fctLoader;
+	}
+
 	bool			createExtParser(const char* id);
 	bool			createExtExecuter(const char* id);
 
@@ -86,6 +109,11 @@ public:
 	SelContextPtr	getSelContext(uint32_t id);
 	HftContextPtr	getHftContext(uint32_t id);
 	WtEngine*		getEngine(){ return _engine; }
+
+//////////////////////////////////////////////////////////////////////////
+//ILogHandler
+public:
+	virtual void handleLogAppend(WTSLogLevel ll, const char* msg) override;
 
 //////////////////////////////////////////////////////////////////////////
 //扩展Parser
@@ -152,7 +180,7 @@ public:
 private:
 	bool initTraders(WTSVariant* cfgTrader);
 	bool initParsers(WTSVariant* cfgParser);
-	bool initExecuters();
+	bool initExecuters(WTSVariant* cfgExecuter);
 	bool initDataMgr();
 	bool initEvtNotifier();
 	bool initCtaStrategies();
@@ -221,5 +249,14 @@ private:
 
 	bool				_is_hft;
 	bool				_is_sel;
+
+	FuncLoadFnlBars		_ext_fnl_bar_loader;
+	FuncLoadRawBars		_ext_raw_bar_loader;
+	FuncLoadAdjFactors	_ext_adj_fct_loader;
+
+	void*			_feed_obj;
+	FuncReadBars	_feeder_bars;
+	FuncReadFactors	_feeder_fcts;
+	StdUniqueMutex	_feed_mtx;
 };
 

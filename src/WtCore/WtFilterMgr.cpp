@@ -1,30 +1,25 @@
 #include "WtFilterMgr.h"
+#include "EventNotifier.h"
 
 #include "../Share/CodeHelper.hpp"
 #include "../Share/JsonToVariant.hpp"
 
-#include "../Share/StdUtils.hpp"
-#include "../Share/BoostFile.hpp"
-
 #include "../WTSTools/WTSLogger.h"
+
+#include <boost/filesystem.hpp>
 
 #include <rapidjson/document.h>
 namespace rj = rapidjson;
-
-#ifdef _WIN32
-#define my_stricmp _stricmp
-#else
-#define my_stricmp strcasecmp
-#endif
 
 USING_NS_OTP;
 
 void WtFilterMgr::load_filters(const char* fileName)
 {
-	if (_filter_file.empty() && strlen(fileName) == 0)
+	if (_filter_file.empty() && (strlen(fileName) == 0))
 		return;
 
-	_filter_file = fileName;
+	if(strlen(fileName) > 0)
+		_filter_file = fileName;
 
 	if (!StdFile::exists(_filter_file.c_str()))
 	{
@@ -36,8 +31,12 @@ void WtFilterMgr::load_filters(const char* fileName)
 	if (lastModTime <= _filter_timestamp)
 		return;
 
-	if(_filter_timestamp != 0)
+	if (_filter_timestamp != 0)
+	{
 		WTSLogger::info("Filters configuration file %s modified, will be reloaded", _filter_file.c_str());
+		if (_notifier)
+			_notifier->notifyEvent("Filter file has been reloaded");
+	}
 
 	std::string content;
 	StdFile::read_file_content(_filter_file.c_str(), content);
@@ -79,9 +78,9 @@ void WtFilterMgr::load_filters(const char* fileName)
 			WTSVariant* cfgItem = filterStra->get(key.c_str());
 			const char* action = cfgItem->getCString("action");
 			FilterAction fAct = FA_None;
-			if (my_stricmp(action, "ignore") == 0)
+			if (wt_stricmp(action, "ignore") == 0)
 				fAct = FA_Ignore;
-			else if (my_stricmp(action, "redirect") == 0)
+			else if (wt_stricmp(action, "redirect") == 0)
 				fAct = FA_Redirect;
 
 			if (fAct == FA_None)
@@ -110,9 +109,9 @@ void WtFilterMgr::load_filters(const char* fileName)
 			WTSVariant* cfgItem = filterCodes->get(stdCode.c_str());
 			const char* action = cfgItem->getCString("action");
 			FilterAction fAct = FA_None;
-			if (my_stricmp(action, "ignore") == 0)
+			if (wt_stricmp(action, "ignore") == 0)
 				fAct = FA_Ignore;
-			else if (my_stricmp(action, "redirect") == 0)
+			else if (wt_stricmp(action, "redirect") == 0)
 				fAct = FA_Redirect;
 
 			if (fAct == FA_None)
@@ -167,12 +166,19 @@ bool WtFilterMgr::is_filtered_by_strategy(const char* straName, double& targetPo
 	if (it != _stra_filters.end())
 	{
 		const FilterItem& fItem = it->second;
+		if(isDiff)
+		{
+			//如果过滤器触发，并且是增量头寸，则直接过滤掉
+			WTSLogger::info("[Filters] Strategy filter %s triggered, the change of position ignored directly", straName);
+			return true;
+		}
+
 		WTSLogger::info("[Filters] Strategy filter %s triggered, action: %s", straName, fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
 		if (fItem._action == FA_Ignore)
 		{
 			return true;
 		}
-		else if (fItem._action == FA_Redirect && !isDiff)
+		else if (fItem._action == FA_Redirect)
 		{
 			//只有不是增量的时候,才有效
 			targetPos = fItem._target;

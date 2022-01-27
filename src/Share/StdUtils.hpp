@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <string>
 
-#if _WIN32
+#if _MSC_VER
 #include <io.h>
 #else
 #include <unistd.h>
@@ -74,6 +74,13 @@ public:
 	{
 		FILE* f = fopen(filename, "wb");
 		fwrite((void*)content.data(), sizeof(char), content.size(), f);
+		fclose(f);
+	}
+
+	static inline void write_file_content(const char* filename, const void* data, std::size_t length)
+	{
+		FILE* f = fopen(filename, "wb");
+		fwrite(data, sizeof(char), length, f);
 		fclose(f);
 	}
 

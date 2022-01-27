@@ -49,7 +49,7 @@ public:
 		if(left)
 			ret.erase(0, ret.find_first_not_of(delims));
 
-		return ret;
+		return std::move(ret);
 	}
 
 	//去掉所有空格
@@ -110,7 +110,50 @@ public:
 			++numSplits;
 
 		} while (pos != std::string::npos);
-		return ret;
+		return std::move(ret);
+	}
+
+	/** Returns a std::stringVector that contains all the substd::strings delimited
+	by the characters in the passed <code>delims</code> argument.
+	@param
+	delims A list of delimiter characters to split by
+	@param
+	maxSplits The maximum number of splits to perform (0 for unlimited splits). If this
+	parameters is > 0, the splitting process will stop after this many splits, left to right.
+	*/
+	static inline void split(const std::string& str, StringVector& ret, const std::string& delims = "\t\n ", unsigned int maxSplits = 0)
+	{
+		unsigned int numSplits = 0;
+
+		// Use STL methods
+		size_t start, pos;
+		start = 0;
+		do
+		{
+			pos = str.find_first_of(delims, start);
+			if (pos == start)
+			{
+				ret.emplace_back("");
+				// Do nothing
+				start = pos + 1;
+			}
+			else if (pos == std::string::npos || (maxSplits && numSplits == maxSplits))
+			{
+				// Copy the rest of the std::string
+				ret.emplace_back(str.substr(start));
+				break;
+			}
+			else
+			{
+				// Copy up to delimiter
+				ret.emplace_back(str.substr(start, pos - start));
+				start = pos + 1;
+			}
+			// parse up to next real data
+			//start = str.find_first_not_of(delims, start);
+			++numSplits;
+
+		} while (pos != std::string::npos);
 	}
 
 	/** Upper-cases all the characters in the std::string.
@@ -144,7 +187,7 @@ public:
 			strRet.end(),
 			strRet.begin(),
 			(int(*)(int))tolower);
-		return strRet;
+		return std::move(strRet);
 	}
 
 	static inline std::string makeUpperCase(const char* str)
@@ -155,7 +198,7 @@ public:
 			strRet.end(),
 			strRet.begin(),
 			(int(*)(int))toupper);
-		return strRet;
+		return std::move(strRet);
 	}
 
 	/** Converts the contents of the std::string to a float.
@@ -221,7 +264,7 @@ public:
 		if (path[path.length() - 1] != '/' && bIsDir)
 			path += '/';
 
-		return path;
+		return std::move(path);
 	}
 
 	/** Method for splitting a fully qualified filename into the base name
@@ -326,7 +369,7 @@ public:
 	static inline const std::string BLANK()
 	{
 		static const std::string temp = std::string("");
-		return temp;
+		return std::move(temp);
 	}
 
 	//地球人都知道,恶心的std::string是没有CString的Format这个函数的,所以我们自己造
@@ -336,7 +379,7 @@ public:
 		va_start(argptr, pszFormat);
 		std::string result=printf(pszFormat,argptr);
 		va_end(argptr);
-		return result;
+		return std::move(result);
 	}
 
 	//地球人都知道,恶心的std::string是没有CString的Format这个函数的,所以我们自己造
@@ -346,7 +389,7 @@ public:
 		va_start(argptr, pszFormat);
 		std::string result=printf2(pszFormat,argptr);
 		va_end(argptr);
-		return result;
+		return std::move(result);
 	}
 
 	//地球人都知道,恶心的std::string是没有CString的Format这个函数的,所以我们自己造
@@ -357,7 +400,7 @@ public:
 
 		while (1)
 		{
-#ifdef _WIN32
+#ifdef _MSC_VER
 			int n = _vsnprintf(buffer, size, pszFormat, argptr);
 #else
 			int n = vsnprintf(buffer, size, pszFormat, argptr);
@@ -397,7 +440,7 @@ public:
 		{
 			ret += " ";
 		}
-		return ret;
+		return std::move(ret);
 	}
 
 	//地球人都知道,恶心的std::string是没有CString的Format这个函数的,所以我们自己造
@@ -418,7 +461,7 @@ public:
 			va_list argptrcopy;
 			va_copy(argptrcopy, argptr);
 
-#ifdef _WIN32
+#ifdef _MSC_VER
 			len = _vsnprintf(buf, size, pszFormat, argptrcopy);
 #else
 			len = vsnprintf(buf, size, pszFormat, argptrcopy);
@@ -433,7 +476,7 @@ public:
 			size *= 2;
 		}
 		ret.resize(len);
-		return ret;
+		return std::move(ret);
 	}
 
 	//取得右边的N个字符
@@ -441,13 +484,13 @@ public:
 	{
 		if(nCount>src.length())
 			return BLANK();
-		return src.substr(src.length()-nCount,nCount);
+		return std::move(src.substr(src.length()-nCount,nCount));
 	}
 
 	//取左边的N个字符
 	static inline std::string left(const std::string &src,size_t nCount)
 	{
-		return src.substr(0,nCount);
+		return std::move(src.substr(0,nCount));
 	}
 
 	static inline size_t charCount(const std::string &src,char ch)
@@ -482,7 +525,7 @@ public:
 	static inline std::string fmtInt64(int64_t v)
 	{
 		char buf[64] = { 0 };
-#ifdef _WIN32
+#ifdef _MSC_VER
 		int pos = sprintf(buf, "%I64d", v);
 #else
 		int pos = sprintf(buf, "%lld", (long long)v);
@@ -493,7 +536,7 @@ public:
 	static inline std::string fmtUInt64(uint64_t v)
 	{
 		char buf[64] = { 0 };
-#ifdef _WIN32
+#ifdef _MSC_VER
 		int pos = sprintf(buf, "%I64u", v);
 #else
 		int pos = sprintf(buf, "%llu", (unsigned long long)v);

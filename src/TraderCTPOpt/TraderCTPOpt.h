@@ -13,15 +13,11 @@
 #include <queue>
 #include <stdint.h>
 
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/strand.hpp>
-
 #include "../Includes/WTSTypes.h"
 #include "../Includes/ITraderApi.h"
 #include "../Includes/WTSCollection.hpp"
 
-//CTPOpt v3.5.8P4
-#include "./ThostTraderApi/ThostFtdcTraderApi.h"
+#include "../API/CTPOpt3.5.8/ThostFtdcTraderApi.h"
 
 #include "../Share/IniHelper.hpp"
 #include "../Share/StdUtils.hpp"
@@ -91,6 +87,8 @@ public:
 
 	virtual int queryTrades() override;
 
+	virtual int querySettlement(uint32_t uDate) override;
+
 
 	//////////////////////////////////////////////////////////////////////////
 	//IOptTraderApi
@@ -127,6 +125,8 @@ public:
 	virtual void OnRspOrderAction(CThostFtdcInputOrderActionField *pInputOrderAction, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
 
 	virtual void OnRspQryInvestorPosition(CThostFtdcInvestorPositionField *pInvestorPosition, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
+
+	virtual void OnRspQrySettlementInfo(CThostFtdcSettlementInfoField *pSettlementInfo, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
 
 	///请求查询成交响应
 	virtual void OnRspQryTrade(CThostFtdcTradeField *pTrade, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
@@ -198,6 +198,8 @@ protected:
 	std::string		m_strTag;
 
 	std::string		m_strUserName;
+
+	std::string		m_strSettleInfo;
 
 	ITraderSpi*		m_bscSink;
 	IOptTraderSpi*	m_optSink;

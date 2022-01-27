@@ -8,15 +8,14 @@
  * \brief 
  */
 #include "ExecMocker.h"
-#include "HisDataReplayer.h"
 #include "WtHelper.h"
 
 #include "../Includes/WTSVariant.hpp"
 #include "../Share/TimeUtils.hpp"
 #include "../Share/decimal.h"
-#include "../Share/BoostFile.hpp"
-
 #include "../WTSTools/WTSLogger.h"
+
+#include <boost/filesystem.hpp>
 
 #define PRICE_DOUBLE_TO_INT_P(x) ((int32_t)((x)*10000.0 + 0.5))
 #define PRICE_DOUBLE_TO_INT_N(x) ((int32_t)((x)*10000.0 - 0.5))
@@ -142,7 +141,7 @@ void ExecMocker::handle_init()
 
 	std::string folder = WtHelper::getOutputDir();
 	folder += "exec/";
-	BoostFile::create_directories(folder.c_str());
+	boost::filesystem::create_directories(folder.c_str());
 
 	std::stringstream ss;
 	ss << folder << "trades_" << _id << ".csv";
@@ -198,7 +197,7 @@ double ExecMocker::getUndoneQty(const char* stdCode)
 	return _undone;
 }
 
-OrderIDs ExecMocker::buy(const char* stdCode, double price, double qty)
+OrderIDs ExecMocker::buy(const char* stdCode, double price, double qty, bool bForceClose /* = false */)
 {
 	uint64_t curTime = (uint64_t)_replayer->get_date() * 1000000000 + (uint64_t)_replayer->get_raw_time() * 100000 + _replayer->get_secs();
 	OrderIDs ret = _matcher.buy(stdCode, price, qty, curTime);
@@ -212,7 +211,7 @@ OrderIDs ExecMocker::buy(const char* stdCode, double price, double qty)
 	return ret;
 }
 
-OrderIDs ExecMocker::sell(const char* stdCode, double price, double qty)
+OrderIDs ExecMocker::sell(const char* stdCode, double price, double qty, bool bForceClose /* = false */)
 {
 	uint64_t curTime = (uint64_t)_replayer->get_date() * 1000000000 + (uint64_t)_replayer->get_raw_time() * 100000 + _replayer->get_secs();
 	OrderIDs ret = _matcher.sell(stdCode, price, qty, curTime);

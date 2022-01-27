@@ -35,6 +35,9 @@ public:
 
 public:
 	bool init(WTSVariant* params, WTSBaseDataMgr* bdMgr, StateMonitor* stMonitor, UDPCaster* caster = NULL);
+
+	void add_ext_dumper(const char* id, IHisDataDumper* dumper);
+
 	void release();
 
 	bool writeTick(WTSTickData* curTick, bool bNeedSlice = true);

@@ -14,7 +14,6 @@
 #include "../Share/TimeUtils.hpp"
 #include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/IBaseDataMgr.h"
-#include "../Includes/WTSDataDef.hpp"
 #include "../Includes/IHotMgr.h"
 #include "../Share/CodeHelper.hpp"
 
@@ -57,7 +56,7 @@ void WtHftRtTicker::trigger_price(WTSTickData* curTick, uint32_t hotFlag /* = 0 
 		if (hotFlag !=0)
 		{
 			WTSTickData* hotTick = WTSTickData::create(curTick->getTickStruct());
-			std::string hotCode = (hotFlag != 1) ? CodeHelper::stdCodeToStdHotCode(stdCode.c_str()) : CodeHelper::stdCodeToStd2ndCode(stdCode.c_str());
+			std::string hotCode = (hotFlag == 1) ? CodeHelper::stdCodeToStdHotCode(stdCode.c_str()) : CodeHelper::stdCodeToStd2ndCode(stdCode.c_str());
 			strcpy(hotTick->getTickStruct().code, hotCode.c_str());
 			_engine->on_tick(hotCode.c_str(), hotTick);
 			hotTick->release();
@@ -215,10 +214,13 @@ void WtHftRtTicker::run()
 						_engine->set_date_time(_date, thisMin, 0);
 				}
 			}
-			else if (offTime >= _s_info->getOpenTime(true) && offTime <= _s_info->getCloseTime(true))
+			else //if (offTime >= _s_info->getOpenTime(true) && offTime <= _s_info->getCloseTime(true))
 			{
+				//不在交易时间，则休息10s再进行检查
+				//因为这个逻辑是处理分钟线的，所以休盘时间休息10s，不会引起数据踏空的问题
 				std::this_thread::sleep_for(std::chrono::seconds(10));
 			}
+			
 		}
 	}));
 }

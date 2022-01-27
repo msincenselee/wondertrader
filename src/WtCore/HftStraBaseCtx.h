@@ -12,6 +12,7 @@
 #include "../Includes/FasterDefs.h"
 #include "../Includes/IHftStraCtx.h"
 #include "../Share/BoostFile.hpp"
+
 #include "ITrdNotifySink.h"
 
 NS_OTP_BEGIN
@@ -75,9 +76,11 @@ public:
 
 	virtual WTSTickData* stra_get_last_tick(const char* stdCode) override;
 
-	virtual void stra_log_text(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* fmt, ...) override;
+	virtual void stra_log_debug(const char* fmt, ...) override;
+	virtual void stra_log_error(const char* fmt, ...) override;
 
-	virtual double stra_get_position(const char* stdCode) override;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false) override;
 	virtual double stra_get_position_profit(const char* stdCode) override;
 	virtual double stra_get_price(const char* stdCode) override;
 	virtual double stra_get_undone(const char* stdCode) override;
@@ -106,7 +109,7 @@ public:
 
 	virtual void on_entrust(uint32_t localid, const char* stdCode, bool bSuccess, const char* message) override;
 
-	virtual void on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail) override;
+	virtual void on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail, uint32_t tradingday) override;
 
 protected:
 	const char* get_inner_code(const char* stdCode);

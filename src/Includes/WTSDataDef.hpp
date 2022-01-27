@@ -255,6 +255,26 @@ public:
 		return pRet;
 	}
 
+	inline WTSBarStruct*	get_his_addr()
+	{
+		return m_bsHisBegin;
+	}
+
+	inline int32_t	get_his_count()
+	{
+		return m_iHisCnt;
+	}
+
+	inline WTSBarStruct*	get_rt_addr()
+	{
+		return m_bsRtBegin;
+	}
+
+	inline int32_t	get_rt_count()
+	{
+		return m_iRtCnt;
+	}
+
 	inline WTSBarStruct*	at(int32_t idx)
 	{
 		idx = translateIdx(idx);
@@ -315,7 +335,7 @@ public:
 		double minValue = at(begin)->low;
 		for (int32_t i = begin; i <= end; i++)
 		{
-			minValue = max(minValue, at(i)->low);
+			minValue = min(minValue, at(i)->low);
 		}
 
 		return minValue;

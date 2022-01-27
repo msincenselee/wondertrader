@@ -10,7 +10,6 @@
 #pragma once
 #include <string>
 #include "DataDefine.h"
-#include "../WtDataWriter/MysqlDB.hpp"
 
 #include "../Includes/FasterDefs.h"
 #include "../Includes/WTSMarcos.h"
@@ -33,9 +32,11 @@ class WTSCommodityInfo;
 class WTSOrdDtlData;
 class WTSOrdQueData;
 class WTSTransData;
+
+class EventNotifier;
 NS_OTP_END
 
-typedef std::shared_ptr<MysqlDb>	MysqlDbPtr;
+//typedef std::shared_ptr<MysqlDb>	MysqlDbPtr;
 
 USING_NS_OTP;
 
@@ -53,6 +54,71 @@ public:
 	virtual void	handle_session_begin(uint32_t curTDate) = 0;
 	virtual void	handle_session_end(uint32_t curTDate) = 0;
 	virtual void	handle_replay_done() {}
+};
+
+/*
+ *	历史数据加载器的回调函数
+ *	@obj	回传用的，原样返回即可
+ *	@key	数据缓存的key
+ *	@bars	K线数据
+ *	@count	K线条数
+ *	@factor	复权因子，最新的复权因子，如果是后复权，则factor不为1.0，如果是前复权，则factor必须为1.0
+ */
+typedef void(*FuncReadBars)(void* obj, WTSBarStruct* firstBar, uint32_t count);
+
+/*
+ *	加载复权因子回调
+ *	@obj	回传用的，原样返回即可
+ *	@stdCode	合约代码
+ *	@dates
+ */
+typedef void(*FuncReadFactors)(void* obj, const char* stdCode, uint32_t* dates, double* factors, uint32_t count);
+
+typedef void(*FuncReadTicks)(void* obj, WTSTickStruct* firstTick, uint32_t count);
+
+class IBtDataLoader
+{
+public:
+	/*
+	 *	加载最终历史K线数据
+	 *	和loadRawHisBars的区别在于，loadFinalHisBars，系统认为是最终所需数据，不在进行加工，例如复权数据、主力合约数据
+	 *	loadRawHisBars是加载未加工的原始数据的接口
+	 *
+	 *	@obj	回传用的，原样返回即可
+	 *	@stdCode	合约代码
+	 *	@period	K线周期
+	 *	@cb		回调函数
+	 */
+	virtual bool loadFinalHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb) = 0;
+
+	/*
+	 *	加载原始历史K线数据
+	 *
+	 *	@obj	回传用的，原样返回即可
+	 *	@stdCode	合约代码
+	 *	@period	K线周期
+	 *	@cb		回调函数
+	 */
+	virtual bool loadRawHisBars(void* obj, const char* stdCode, WTSKlinePeriod period, FuncReadBars cb) = 0;
+
+	/*
+	 *	加载全部除权因子
+	 */
+	virtual bool loadAllAdjFactors(void* obj, FuncReadFactors cb) = 0;
+
+	/*
+	 *	根据合约加载除权因子
+	 *
+	 *	@stdCode	合约代码
+	 */
+	virtual bool loadAdjFactors(void* obj, const char* stdCode, FuncReadFactors cb) = 0;
+
+	/*
+	 *	加载历史Tick数据
+	 */
+	virtual bool loadRawHisTicks(void* obj, const char* stdCode, uint32_t uDate, FuncReadTicks cb) = 0;
+
+	virtual bool isAutoTrans() { return true; }
 };
 
 class HisDataReplayer
@@ -88,8 +154,9 @@ private:
 		uint32_t		_times;
 
 		std::vector<WTSBarStruct>	_bars;
+		double			_factor;	//最后一条复权因子
 
-		_BarsList() :_cursor(UINT_MAX), _count(0), _times(1){}
+		_BarsList() :_cursor(UINT_MAX), _count(0), _times(1), _factor(1){}
 	} BarsList;
 
 	typedef faster_hashmap<std::string, BarsList>	BarsCache;
@@ -136,12 +203,7 @@ private:
 	/*
 	 *	从csv文件缓存历史数据
 	 */
-	bool		cacheRawBarsFromCSV(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bForBars = true);
-
-	/*
-	 *	从数据库缓存历史数据
-	 */
-	bool		cacheRawBarsFromDB(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bForBars = true);
+	bool		cacheRawBarsFromCSV(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
 
 	/*
 	 *	从自定义数据文件缓存历史tick数据
@@ -152,6 +214,26 @@ private:
 	 *	从csv文件缓存历史tick数据
 	 */
 	bool		cacheRawTicksFromCSV(const std::string& key, const char* stdCode, uint32_t uDate);
+
+	/*
+	 *	从外部加载器缓存历史数据
+	 */
+	bool		cacheFinalBarsFromLoader(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
+
+	/*
+	 *	从外部加载器缓存历史tick数据
+	 */
+	bool		cacheRawTicksFromLoader(const std::string& key, const char* stdCode, uint32_t uDate);
+
+	/*
+	 *	缓存整合的期货合约历史K线（针对.HOT//2ND）
+	 */
+	bool		cacheIntegratedFutBars(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
+
+	/*
+	 *	缓存复权股票K线数据
+	 */
+	bool		cacheAdjustedStkBars(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
 
 	void		onMinuteEnd(uint32_t uDate, uint32_t uTime, uint32_t endTDate = 0, bool tickSimulated = true);
 
@@ -173,11 +255,9 @@ private:
 
 	void		checkUnbars();
 
-	bool		loadStkAdjFactors(const char* adjfile);
+	bool		loadStkAdjFactorsFromFile(const char* adjfile);
 
-	bool		loadStkAdjFactorsFromDB();
-
-	void		initDB();
+	bool		loadStkAdjFactorsFromLoader();
 
 	bool		checkAllTicks(uint32_t uDate);
 
@@ -186,12 +266,44 @@ private:
 	inline	uint64_t	getNextOrdDtlTime(uint32_t curTDate, uint64_t stime = UINT64_MAX);
 	inline	uint64_t	getNextTransTime(uint32_t curTDate, uint64_t stime = UINT64_MAX);
 
+	void		reset();
+
+
+	void		dump_btstate(const char* stdCode, WTSKlinePeriod period, uint32_t times, uint64_t stime, uint64_t etime, double progress, int64_t elapse);
+	void		notify_state(const char* stdCode, WTSKlinePeriod period, uint32_t times, uint64_t stime, uint64_t etime, double progress);
+
+	uint32_t	locate_barindex(const std::string& key, uint64_t curTime, bool bUpperBound = false);
+
+	void	run_by_bars(bool bNeedDump = false);
+	void	run_by_tasks(bool bNeedDump = false);
+	void	run_by_ticks(bool bNeedDump = false);
+
 public:
-	bool init(WTSVariant* cfg);
+	bool init(WTSVariant* cfg, EventNotifier* notifier = NULL, IBtDataLoader* dataLoader = NULL);
 
-	void run();
+	bool prepare();
+	void run(bool bNeedDump = false);
+	
+	void stop();
 
-	void register_sink(IDataSink* listener){ _listener = listener; }
+	void clear_cache();
+
+	inline void set_time_range(uint64_t stime, uint64_t etime)
+	{
+		_begin_time = stime;
+		_end_time = etime;
+	}
+
+	inline void enable_tick(bool bEnabled = true)
+	{
+		_tick_enabled = bEnabled;
+	}
+
+	inline void register_sink(IDataSink* listener, const char* sinkName) 
+	{
+		_listener = listener; 
+		_stra_name = sinkName;
+	}
 
 	void register_task(uint32_t taskid, uint32_t date, uint32_t time, const char* period, const char* trdtpl = "CHINA", const char* session = "TRADING");
 
@@ -223,9 +335,9 @@ public:
 	void sub_order_detail(uint32_t sid, const char* stdCode);
 	void sub_transaction(uint32_t sid, const char* stdCode);
 
-	bool	is_tick_enabled() const{ return _tick_enabled; }
+	inline bool	is_tick_enabled() const{ return _tick_enabled; }
 
-	bool	is_tick_simulated() const { return _tick_simulated; }
+	inline bool	is_tick_simulated() const { return _tick_simulated; }
 
 	inline void update_price(const char* stdCode, double price)
 	{
@@ -234,6 +346,8 @@ public:
 
 private:
 	IDataSink*		_listener;
+	IBtDataLoader*	_bt_loader;
+	std::string		_stra_name;
 
 	TickCache		_ticks_cache;	//tick缓存
 	OrdDtlCache		_orddtl_cache;	//order detail缓存
@@ -267,6 +381,8 @@ private:
 	uint64_t		_begin_time;
 	uint64_t		_end_time;
 
+	bool			_running;
+	bool			_terminated;
 	//////////////////////////////////////////////////////////////////////////
 	//手续费模板
 	typedef struct _FeeItem
@@ -308,26 +424,8 @@ private:
 	typedef faster_hashmap<std::string, AdjFactorList>	AdjFactorMap;
 	AdjFactorMap	_adj_factors;
 
-	inline const AdjFactorList& getAdjFactors(const char* code, const char* exchg)
-	{
-		char key[20] = { 0 };
-		sprintf(key, "%s.%s", exchg, code);
-		return _adj_factors[key];
-	}
+	const AdjFactorList& getAdjFactors(const char* code, const char* exchg, const char* pid);
 
-	typedef struct _DBConfig
-	{
-		bool	_active;
-		char	_host[64];
-		int32_t	_port;
-		char	_dbname[32];
-		char	_user[32];
-		char	_pass[32];
-
-		_DBConfig() { memset(this, 0, sizeof(_DBConfig)); }
-	} DBConfig;
-
-	DBConfig	_db_conf;
-	MysqlDbPtr	_db_conn;
+	EventNotifier*	_notifier;
 };
 
