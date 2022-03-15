@@ -14,11 +14,26 @@
 #include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/WTSTradeDef.hpp"
 #include "../Includes/WTSError.hpp"
-#include "../Includes/WTSParams.hpp"
+#include "../Includes/WTSVariant.hpp"
 
 #include "../Share/ModuleHelper.hpp"
 
 #include <boost/filesystem.hpp>
+
+ //By Wesley @ 2022.01.05
+#include "../Share/fmtlib.h"
+template<typename... Args>
+inline void write_log(ITraderSpi* sink, WTSLogLevel ll, const char* format, const Args&... args)
+{
+	if (sink == NULL)
+		return;
+
+	static thread_local char buffer[512] = { 0 };
+	std::string s = std::move(fmt::sprintf(format, args...));
+	strcpy(buffer, s.c_str());
+
+	sink->handleTraderLog(ll, buffer);
+}
 
 extern "C"
 {
@@ -181,11 +196,11 @@ WTSEntrust* TraderXTP::makeEntrust(XTPOrderInfo* order_info)
 		(uint32_t)order_info->quantity,
 		order_info->price,
 		ct->getExchg());
-
+	pRet->setContractInfo(ct);
 	pRet->setDirection(wrapDirectionType(order_info->side, order_info->position_effect));
 	pRet->setPriceType(wrapPriceType(order_info->price_type));
 	pRet->setOffsetType(wrapOffsetType(order_info->position_effect));
-	pRet->setTimeCondition(WTC_GFD);
+	pRet->setOrderFlag(WOF_NOR);
 
 	pRet->setEntrustID(genEntrustID(order_info->order_client_id).c_str());
 
@@ -209,11 +224,12 @@ WTSOrderInfo* TraderXTP::makeOrderInfo(XTPQueryOrderRsp* order_info)
 		return NULL;
 
 	WTSOrderInfo* pRet = WTSOrderInfo::create();
+	pRet->setContractInfo(contract);
 	pRet->setPrice(order_info->price);
 	pRet->setVolume((uint32_t)order_info->quantity);
 	pRet->setDirection(wrapDirectionType(order_info->side, order_info->position_effect));
 	pRet->setPriceType(wrapPriceType(order_info->price_type));
-	pRet->setTimeCondition(WTC_GFD);
+	pRet->setOrderFlag(WOF_NOR);
 	pRet->setOffsetType(wrapOffsetType(order_info->position_effect));
 
 	pRet->setVolTraded((uint32_t)order_info->qty_traded);
@@ -266,12 +282,11 @@ WTSTradeInfo* TraderXTP::makeTradeInfo(XTPQueryTradeRsp* trade_info)
 	if (contract == NULL)
 		return NULL;
 
-	WTSCommodityInfo* commInfo = _bd_mgr->getCommodity(contract);
-
-	WTSTradeInfo *pRet = WTSTradeInfo::create(code.c_str(), commInfo->getExchg());
+	WTSTradeInfo *pRet = WTSTradeInfo::create(code.c_str(), exchg.c_str());
 	pRet->setVolume((uint32_t)trade_info->quantity);
 	pRet->setPrice(trade_info->price);
 	pRet->setTradeID(trade_info->exec_id);
+	pRet->setContractInfo(contract);
 
 	uint32_t uTime = (uint32_t)(trade_info->trade_time % 1000000000);
 	uint32_t uDate = (uint32_t)(trade_info->trade_time / 1000000000);
@@ -286,7 +301,7 @@ WTSTradeInfo* TraderXTP::makeTradeInfo(XTPQueryTradeRsp* trade_info)
 	pRet->setRefOrder(StrUtil::fmtUInt64(trade_info->order_xtp_id).c_str());
 	pRet->setTradeType(WTT_Common);
 
-	double amount = commInfo->getVolScale()*trade_info->quantity*pRet->getPrice();
+	double amount = trade_info->quantity*pRet->getPrice();
 	pRet->setAmount(amount);
 
 	std::string usertag = _ini.readString(ORDER_SECTION, StrUtil::trim(pRet->getRefOrder()).c_str());
@@ -305,7 +320,7 @@ void TraderXTP::OnDisconnected(uint64_t session_id, int reason)
 void TraderXTP::OnError(XTPRI *error_info)
 {
 	if (_sink && error_info)
-		_sink->handleTraderLog(LL_ERROR, error_info->error_msg);
+		write_log(_sink,LL_ERROR, error_info->error_msg);
 }
 
 void TraderXTP::OnOrderEvent(XTPOrderInfo *order_info, XTPRI *error_info, uint64_t session_id)
@@ -438,12 +453,13 @@ void TraderXTP::OnQueryPosition(XTPQueryStkPositionRsp *position, XTPRI *error_i
 		WTSContractInfo* contract = _bd_mgr->getContract(code.c_str(), exchg.c_str());
 		if (contract)
 		{
-			WTSCommodityInfo* commInfo = _bd_mgr->getCommodity(contract);
+			WTSCommodityInfo* commInfo = contract->getCommInfo();
 			std::string key = StrUtil::printf("%s-%d", code.c_str(), position->position_direction);
 			WTSPositionItem* pos = (WTSPositionItem*)_positions->get(key);
 			if (pos == NULL)
 			{
 				pos = WTSPositionItem::create(code.c_str(), commInfo->getCurrency(), commInfo->getExchg());
+				pos->setContractInfo(contract);
 				_positions->add(key, pos, false);
 			}
 			pos->setDirection(wrapPosDirection(position->position_direction));
@@ -528,7 +544,7 @@ void TraderXTP::OnQueryAsset(XTPQueryAssetRsp *asset, XTPRI *error_info, int req
 #pragma endregion "XTP::API:TraderSpi"
 
 #pragma region "ITraderApi"
-bool TraderXTP::init(WTSParams *params)
+bool TraderXTP::init(WTSVariant *params)
 {
 	_user = params->getCString("user");
 	_pass = params->getCString("pass");
@@ -612,11 +628,11 @@ void TraderXTP::reconnect()
 	{
 		if (_sink)
 			_sink->handleEvent(WTE_Connect, -1);
-		_sink->handleTraderLog(LL_ERROR, "[TraderrXTP] Module initializing failed");
+		write_log(_sink,LL_ERROR, "[TraderrXTP] Module initializing failed");
 
 		StdThreadPtr thrd(new StdThread([this](){
 			std::this_thread::sleep_for(std::chrono::seconds(2));
-			_sink->handleTraderLog(LL_WARN, "[TraderrXTP] %s reconnecting...", _user.c_str());
+			write_log(_sink,LL_WARN, "[TraderrXTP] %s reconnecting...", _user.c_str());
 			reconnect();
 		}));
 		return;
@@ -701,7 +717,7 @@ int TraderXTP::login(const char* user, const char* pass, const char* productInfo
 	if (iResult == 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Login failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Login failed: %s", error_info->error_msg);
 		std::string msg = error_info->error_msg;
 		_state = TS_LOGINFAILED;
 		_asyncio.post([this, msg]{
@@ -729,10 +745,10 @@ int TraderXTP::login(const char* user, const char* pass, const char* productInfo
 			_ini.writeUInt("marker", "date", _tradingday);
 			_ini.save();
 
-			_sink->handleTraderLog(LL_INFO, "[TraderXTP] [%s] Trading date changed [%u -> %u], local cache cleared...", _user.c_str(), lastDate, _tradingday);
+			write_log(_sink,LL_INFO, "[TraderXTP] [%s] Trading date changed [%u -> %u], local cache cleared...", _user.c_str(), lastDate, _tradingday);
 		}		
 
-		_sink->handleTraderLog(LL_INFO, "[TraderXTP] [%s] Login succeed, trading date: %u...", _user.c_str(), _tradingday);
+		write_log(_sink,LL_INFO, "[TraderXTP] [%s] Login succeed, trading date: %u...", _user.c_str(), _tradingday);
 
 		_state = TS_LOGINED;
 		_asyncio.post([this]{
@@ -783,7 +799,7 @@ int TraderXTP::orderInsert(WTSEntrust* entrust)
 	if (iResult == 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Order inserting failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Order inserting failed: %s", error_info->error_msg);
 	}
 
 	return 0;
@@ -800,7 +816,7 @@ int TraderXTP::orderAction(WTSEntrustAction* action)
 	if (iResult != 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Order cancelling failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Order cancelling failed: %s", error_info->error_msg);
 	}
 
 	return 0;
@@ -817,7 +833,7 @@ int TraderXTP::queryAccount()
 	if (iResult != 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Account querying failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Account querying failed: %s", error_info->error_msg);
 	}
 
 	return 0;
@@ -829,7 +845,7 @@ int TraderXTP::queryPositions()
 	if (iResult != 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Positions querying failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Positions querying failed: %s", error_info->error_msg);
 	}
 
 	return 0;
@@ -843,7 +859,7 @@ int TraderXTP::queryOrders()
 	if (iResult != 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Orders querying failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Orders querying failed: %s", error_info->error_msg);
 	}
 
 	return 0;
@@ -857,7 +873,7 @@ int TraderXTP::queryTrades()
 	if (iResult != 0)
 	{
 		auto error_info = _api->GetApiLastError();
-		_sink->handleTraderLog(LL_ERROR, "[TraderXTP] Trades querying failed: %s", error_info->error_msg);
+		write_log(_sink,LL_ERROR, "[TraderXTP] Trades querying failed: %s", error_info->error_msg);
 	}
 
 	return 0;

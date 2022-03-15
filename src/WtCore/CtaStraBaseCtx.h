@@ -13,10 +13,11 @@
 #include "../Includes/WTSDataDef.hpp"
 
 #include "../Share/BoostFile.hpp"
+#include "../Share/fmtlib.h"
 
 class CtaStrategy;
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 
 class WtCtaEngine;
 
@@ -77,6 +78,27 @@ private:
 
 	inline CondList& get_cond_entrusts(const char* stdCode);
 	
+private:
+	template<typename... Args>
+	void log_debug(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_debug(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_info(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_info(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_error(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_error(s.c_str());
+	}
 
 public:
 	virtual uint32_t id() { return _context_id; }
@@ -127,9 +149,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
-	virtual void stra_log_info(const char* fmt, ...) override;
-	virtual void stra_log_debug(const char* fmt, ...) override;
-	virtual void stra_log_error(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* message) override;
+	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_error(const char* message) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
@@ -253,7 +275,10 @@ protected:
 	} StraFundInfo;
 
 	StraFundInfo		_fund_info;
+
+	//tick¶©ÔÄÁÐ±í
+	faster_hashset<std::string> _tick_subs;
 };
 
 
-NS_OTP_END
+NS_WTP_END

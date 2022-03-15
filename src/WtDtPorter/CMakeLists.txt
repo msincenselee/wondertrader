@@ -34,7 +34,7 @@ ELSE(GNUCC)
 		)
 	IF(WIN32)
 		LIST(APPEND LIBS
-			ws2_32
+			ws2_32 iconv
 		)
 	ENDIF()
 ENDIF()
@@ -64,6 +64,9 @@ add_custom_command(TARGET WtDtPorter POST_BUILD
 
 		COMMAND ${CMAKE_COMMAND} -E
 		copy ${PROJECT_SOURCE_DIR}/../build_${PLATFORM}/${CMAKE_BUILD_TYPE}/bin/${PREFIX}WtDataStorage${SUFFIX} ${LIBRARY_OUTPUT_PATH}/
+
+		COMMAND ${CMAKE_COMMAND} -E
+		copy ${PROJECT_SOURCE_DIR}/../build_${PLATFORM}/${CMAKE_BUILD_TYPE}/bin/${PREFIX}WtDataStorageAD${SUFFIX} ${LIBRARY_OUTPUT_PATH}/
 
 		COMMENT "depends modules copied")
 		

@@ -1,55 +1,37 @@
 #include "../Share/CodeHelper.hpp"
-#include <gtest/gtest.h>
-
-TEST(test_codehelper, test_std_stk_code)
-{
-	//π…∆±¥˙¬Î≤‚ ‘
-	EXPECT_FALSE(CodeHelper::isStdStkCode("SSE.600000"));
-	EXPECT_TRUE(CodeHelper::isStdStkCode("SSE.STK.600000Q"));
-	EXPECT_TRUE(CodeHelper::isStdStkCode("SSE.STK.600000H"));
-	EXPECT_TRUE(CodeHelper::isStdStkCode("SSE.ETF.1108600"));
-	EXPECT_TRUE(CodeHelper::isStdStkCode("SSE.ETF.1108600Q"));
-	EXPECT_TRUE(CodeHelper::isStdStkCode("SSE.ETF.1108600H"));
-	EXPECT_FALSE(CodeHelper::isStdStkCode("CFFEX.IF.2101"));
-	EXPECT_FALSE(CodeHelper::isStdStkCode("CFFEX.IF.HOT"));
-	EXPECT_FALSE(CodeHelper::isStdStkCode("CFFEX.IF.2ND"));
-
-}
-
+#include "gtest/gtest/gtest.h"
 
 TEST(test_codehelper, test_raw_to_std)
 {
-	EXPECT_EQ(CodeHelper::rawStkCodeToStdCode("600000", "SSE", "STK"), "SSE.STK.600000");
-	EXPECT_EQ(CodeHelper::rawStkCodeToStdCode("000001", "SSE", "IDX"), "SSE.IDX.000001");
-	EXPECT_EQ(CodeHelper::rawStkCodeToStdCode("510300", "SSE", "ETF"), "SSE.ETF.510300");
+	EXPECT_EQ(CodeHelper::rawFlatCodeToStdCode("600000", "SSE", "STK"), "SSE.STK.600000");
+	EXPECT_EQ(CodeHelper::rawFlatCodeToStdCode("000001", "SSE", "IDX"), "SSE.IDX.000001");
+	EXPECT_EQ(CodeHelper::rawFlatCodeToStdCode("510300", "SSE", "ETF"), "SSE.ETF.510300");
 
-	EXPECT_EQ(CodeHelper::rawFutCodeToStdCode("IF2112", "CFFEX"), "CFFEX.IF.2112");
-	EXPECT_EQ(CodeHelper::rawFutCodeToStdCode("MA112", "CZCE"), "CZCE.MA.2112");
+	EXPECT_EQ(CodeHelper::rawMonthCodeToStdCode("IF2112", "CFFEX"), "CFFEX.IF.2112");
+	EXPECT_EQ(CodeHelper::rawMonthCodeToStdCode("MA112", "CZCE"), "CZCE.MA.2112");
+	EXPECT_EQ(CodeHelper::rawMonthCodeToStdCode("v2112", "DCE"), "DCE.v.2112");
+	
+	EXPECT_TRUE(CodeHelper::isMonthlyCode("MA221"));
+	EXPECT_TRUE(CodeHelper::isMonthlyCode("rb2001"));
+	EXPECT_TRUE(CodeHelper::isMonthlyCode("v2001"));
+
+	EXPECT_FALSE(CodeHelper::isMonthlyCode("600000"));
+	EXPECT_TRUE(CodeHelper::isMonthlyCode("BTC-USDT-220627"));
 }
 
 TEST(test_codehelper, test_extract)
 {
-	auto c = CodeHelper::extractStdCode("SSE.STK.600000Q");
+	auto c = CodeHelper::extractStdCode("SSE.STK.600000-");
 	EXPECT_STREQ(c._exchg, "SSE");
 	EXPECT_STREQ(c._code, "600000");
 	EXPECT_STREQ(c._product, "STK");
-	EXPECT_TRUE(c.isStock());
-	EXPECT_FALSE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_TRUE(c.isExright());
 	EXPECT_EQ(c._exright, 1);
 
-	c = CodeHelper::extractStdCode("SSE.STK.600000H");
+	c = CodeHelper::extractStdCode("SSE.STK.600000+");
 	EXPECT_STREQ(c._exchg, "SSE");
 	EXPECT_STREQ(c._code, "600000");
 	EXPECT_STREQ(c._product, "STK");
-	EXPECT_TRUE(c.isStock());
-	EXPECT_FALSE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_TRUE(c.isExright());
 	EXPECT_EQ(c._exright, 2);
 
@@ -57,35 +39,20 @@ TEST(test_codehelper, test_extract)
 	EXPECT_STREQ(c._exchg, "SSE");
 	EXPECT_STREQ(c._code, "600000");
 	EXPECT_STREQ(c._product, "STK");
-	EXPECT_TRUE(c.isStock());
-	EXPECT_FALSE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_FALSE(c.isExright());
 	EXPECT_EQ(c._exright, 0);
 
-	c = CodeHelper::extractStdCode("SSE.ETF.1108600Q");
+	c = CodeHelper::extractStdCode("SSE.ETF.1108600-");
 	EXPECT_STREQ(c._exchg, "SSE");
 	EXPECT_STREQ(c._code, "1108600");
 	EXPECT_STREQ(c._product, "ETF");
-	EXPECT_TRUE(c.isStock());
-	EXPECT_FALSE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_TRUE(c.isExright());
 	EXPECT_EQ(c._exright, 1);
 
-	c = CodeHelper::extractStdCode("SSE.ETF.1108600H");
+	c = CodeHelper::extractStdCode("SSE.ETF.1108600+");
 	EXPECT_STREQ(c._exchg, "SSE");
 	EXPECT_STREQ(c._code, "1108600");
 	EXPECT_STREQ(c._product, "ETF");
-	EXPECT_TRUE(c.isStock());
-	EXPECT_FALSE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_TRUE(c.isExright());
 	EXPECT_EQ(c._exright, 2);
 
@@ -93,11 +60,6 @@ TEST(test_codehelper, test_extract)
 	EXPECT_STREQ(c._exchg, "SSE");
 	EXPECT_STREQ(c._code, "1108600");
 	EXPECT_STREQ(c._product, "ETF");
-	EXPECT_TRUE(c.isStock());
-	EXPECT_FALSE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_FALSE(c.isExright());
 	EXPECT_EQ(c._exright, 0);
 
@@ -105,11 +67,6 @@ TEST(test_codehelper, test_extract)
 	EXPECT_STREQ(c._exchg, "CFFEX");
 	EXPECT_STREQ(c._code, "IF2101");
 	EXPECT_STREQ(c._product, "IF");
-	EXPECT_FALSE(c.isStock());
-	EXPECT_TRUE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_FALSE(c.isHot());
 	EXPECT_FALSE(c.isSecond());
 
@@ -117,11 +74,6 @@ TEST(test_codehelper, test_extract)
 	EXPECT_STREQ(c._exchg, "CFFEX");
 	EXPECT_STREQ(c._code, "IF");
 	EXPECT_STREQ(c._product, "IF");
-	EXPECT_FALSE(c.isStock());
-	EXPECT_TRUE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_TRUE(c.isHot());
 	EXPECT_FALSE(c.isSecond());
 
@@ -129,11 +81,13 @@ TEST(test_codehelper, test_extract)
 	EXPECT_STREQ(c._exchg, "CFFEX");
 	EXPECT_STREQ(c._code, "IF");
 	EXPECT_STREQ(c._product, "IF");
-	EXPECT_FALSE(c.isStock());
-	EXPECT_TRUE(c.isFuture());
-	EXPECT_FALSE(c.isFutOpt());
-	EXPECT_FALSE(c.isETFOpt());
-	EXPECT_FALSE(c.isSpotOpt());
 	EXPECT_FALSE(c.isHot());
 	EXPECT_TRUE(c.isSecond());
+
+	c = CodeHelper::extractStdCode("BINANCE.DC.BTCUSDT");
+	EXPECT_STREQ(c._exchg, "BINANCE");
+	EXPECT_STREQ(c._code, "BTCUSDT");
+	EXPECT_STREQ(c._product, "DC");
+	EXPECT_FALSE(c.isHot());
+	EXPECT_FALSE(c.isSecond());
 }

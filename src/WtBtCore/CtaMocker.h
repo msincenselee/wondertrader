@@ -19,12 +19,13 @@
 
 #include "../Share/DLLHelper.hpp"
 #include "../Share/StdUtils.hpp"
+#include "../Share/fmtlib.h"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class EventNotifier;
-NS_OTP_END
+NS_WTP_END
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 class HisDataReplayer;
 class CtaStrategy;
@@ -152,13 +153,35 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
-	virtual void stra_log_info(const char* fmt, ...) override;
-	virtual void stra_log_debug(const char* fmt, ...) override;
-	virtual void stra_log_error(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* message) override;
+	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_error(const char* message) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
 	virtual const char* stra_load_user_data(const char* key, const char* defVal = "") override;
+
+private:
+	template<typename... Args>
+	void log_debug(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_debug(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_info(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_info(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_error(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_error(s.c_str());
+	}
 
 protected:
 	uint32_t			_context_id;
@@ -314,5 +337,9 @@ protected:
 	bool			_in_backtest;
 	bool			_wait_calc;
 
+	//是否对回测结果持久化
 	bool			_persist_data;
+
+	//tick订阅列表
+	faster_hashset<std::string> _tick_subs;
 };

@@ -24,12 +24,24 @@
     <ClInclude Include="WtDataWriter.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="WtRdmDtReader.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="WtBtDtReader.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WtDataReader.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="WtDataWriter.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="WtRdmDtReader.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="WtBtDtReader.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

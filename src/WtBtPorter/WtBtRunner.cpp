@@ -18,10 +18,11 @@
 #include "../WtBtCore/WtHelper.h"
 
 #include "../Share/TimeUtils.hpp"
-#include "../Share/JsonToVariant.hpp"
 #include "../Share/ModuleHelper.hpp"
 
 #include "../WTSTools/WTSLogger.h"
+#include "../WTSUtils/WTSCfgLoader.h"
+#include "../Includes/WTSVariant.hpp"
 #include "../WTSUtils/SignalHook.hpp"
 
 #ifdef _MSC_VER
@@ -83,9 +84,14 @@ WtBtRunner::WtBtRunner()
 	, _running(false)
 	, _async(false)
 {
+#if _WIN32
+#pragma message("Signal hooks disabled in WIN32")
+#else
+#pragma message("Signal hooks enabled in UNIX")
 	install_signal_hooks([](const char* message) {
 		WTSLogger::error(message);
 	});
+#endif
 }
 
 
@@ -436,27 +442,18 @@ void WtBtRunner::config(const char* cfgFile, bool isFile /* = true */)
 		WTSLogger::error("WtBtEngine has already been inited");
 		return;
 	}
-	std::string content;
-	if (isFile)
-		StdFile::read_file_content(cfgFile, content);
-	else
-		content = cfgFile;
 
-	rj::Document root;
-	if (root.Parse(content.c_str()).HasParseError())
+	WTSVariant* cfg = isFile ? WTSCfgLoader::load_from_file(cfgFile, true) : WTSCfgLoader::load_from_content(cfgFile, false, true);
+	if(cfg == NULL)
 	{
-		WTSLogger::info("Parsing configuration file failed");
+		WTSLogger::error("Loading config failed");
 		return;
 	}
-
-
-	WTSVariant* cfg = WTSVariant::createObject();
-	jsonToVariant(root, cfg);
 
 	//初始化事件推送器
 	initEvtNotifier(cfg->get("notifier"));
 
-	_replayer.init(cfg->get("replayer"), &_notifier, this);
+	_replayer.init(cfg->get("replayer"), &_notifier, _ext_fnl_bar_loader != NULL ? this : NULL);
 
 	WTSVariant* cfgEnv = cfg->get("env");
 	const char* mode = cfgEnv->getCString("mocker");
@@ -580,7 +577,7 @@ void WtBtRunner::set_time_range(WtUInt64 stime, WtUInt64 etime)
 {
 	_replayer.set_time_range(stime, etime);
 
-	WTSLogger::info(fmt::format("Backtest time range is set to be [{},{}] mannually", stime, etime).c_str());
+	WTSLogger::info_f("Backtest time range is set to be [{},{}] mannually", stime, etime);
 }
 
 void WtBtRunner::enable_tick(bool bEnabled /* = true */)

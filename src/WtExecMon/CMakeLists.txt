@@ -31,6 +31,9 @@ ELSE (GNUCC)
 		pthread
 		boost_filesystem
 		boost_thread)
+	if(WIN32)
+		LIST(APPEND LIBS iconv)
+	ENDIF()
 ENDIF()
 
 TARGET_LINK_LIBRARIES(WtExecMon ${LIBS})

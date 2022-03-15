@@ -49,9 +49,9 @@ void register_sel_callbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cb
 
 void register_hft_callbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraBarCallback cbBar, 
 	FuncHftChannelCallback cbChnl, FuncHftOrdCallback cbOrd, FuncHftTrdCallback cbTrd, FuncHftEntrustCallback cbEntrust,
-	FuncStraOrdDtlCallback cbOrdDtl, FuncStraOrdQueCallback cbOrdQue, FuncStraTransCallback cbTrans, FuncSessionEvtCallback cbSessEvt)
+	FuncStraOrdDtlCallback cbOrdDtl, FuncStraOrdQueCallback cbOrdQue, FuncStraTransCallback cbTrans, FuncSessionEvtCallback cbSessEvt, FuncHftPosCallback cbPosition)
 {
-	getRunner().registerHftCallbacks(cbInit, cbTick, cbBar, cbChnl, cbOrd, cbTrd, cbEntrust, cbOrdDtl, cbOrdQue, cbTrans, cbSessEvt);
+	getRunner().registerHftCallbacks(cbInit, cbTick, cbBar, cbChnl, cbOrd, cbTrd, cbEntrust, cbOrdDtl, cbOrdQue, cbTrans, cbSessEvt, cbPosition);
 }
 
 void register_parser_callbacks(FuncParserEvtCallback cbEvt, FuncParserSubCallback cbSub)
@@ -144,11 +144,11 @@ void write_log(WtUInt32 level, const char* message, const char* catName)
 {
 	if (strlen(catName) > 0)
 	{
-		WTSLogger::log2(catName, (WTSLogLevel)level, message);
+		WTSLogger::log_raw_by_cat(catName, (WTSLogLevel)level, message);
 	}
 	else
 	{
-		WTSLogger::log((WTSLogLevel)level, message);
+		WTSLogger::log_raw((WTSLogLevel)level, message);
 	}
 }
 
@@ -226,23 +226,13 @@ WtUInt32 cta_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 		WTSKlineSlice* kData = ctx->stra_get_bars(stdCode, period, barCnt, isMain);
 		if (kData)
 		{
-			uint32_t left = barCnt;
-			uint32_t reaCnt = min(barCnt, (WtUInt32)kData->size());
+			WtUInt32 reaCnt = (WtUInt32)kData->size();
 
-			if (kData->get_his_count() > 0)
+			uint32_t blkCnt = kData->get_block_counts();
+			for (uint32_t i = 0; i < blkCnt; i++)
 			{
-				uint32_t thisCnt = min(left, (uint32_t)kData->get_his_count());
-				left -= thisCnt;
-				reaCnt += thisCnt;
-				cb(cHandle, stdCode, period, kData->get_his_addr(), thisCnt, left == 0);
-			}
-
-			if (left > 0 && kData->get_rt_count() > 0)
-			{
-				uint32_t thisCnt = min(left, (uint32_t)kData->get_rt_count());
-				left -= thisCnt;
-				reaCnt += thisCnt;
-				cb(cHandle, stdCode, period, kData->get_rt_addr(), thisCnt, true);
+				if(kData->get_block_addr(i) != NULL)
+					cb(cHandle, stdCode, period, kData->get_block_addr(i), kData->get_block_size(i), i == blkCnt - 1);
 			}
 
 			kData->release();
@@ -553,24 +543,10 @@ WtUInt32 sel_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 		WTSKlineSlice* kData = ctx->stra_get_bars(stdCode, period, barCnt);
 		if (kData)
 		{
-			uint32_t left = barCnt;
-			uint32_t reaCnt = min(barCnt, (WtUInt32)kData->size());
+			WtUInt32 reaCnt = (WtUInt32)kData->size();
 
-			if (kData->get_his_count() > 0)
-			{
-				uint32_t thisCnt = min(left, (uint32_t)kData->get_his_count());
-				left -= thisCnt;
-				reaCnt += thisCnt;
-				cb(cHandle, stdCode, period, kData->get_his_addr(), thisCnt, left == 0);
-			}
-
-			if (left > 0 && kData->get_rt_count() > 0)
-			{
-				uint32_t thisCnt = min(left, (uint32_t)kData->get_rt_count());
-				left -= thisCnt;
-				reaCnt += thisCnt;
-				cb(cHandle, stdCode, period, kData->get_rt_addr(), thisCnt, true);
-			}
+			for (uint32_t i = 0; i < kData->get_block_counts(); i++)
+				cb(cHandle, stdCode, period, kData->get_block_addr(i), kData->get_block_size(i), i == kData->get_block_counts() - 1);
 
 			kData->release();
 			return reaCnt;
@@ -697,24 +673,10 @@ WtUInt32 hft_get_bars(CtxHandler cHandle, const char* stdCode, const char* perio
 		WTSKlineSlice* kData = ctx->stra_get_bars(stdCode, period, barCnt);
 		if (kData)
 		{
-			uint32_t left = barCnt;
-			uint32_t reaCnt = min(barCnt, (WtUInt32)kData->size());
+			WtUInt32 reaCnt = (WtUInt32)kData->size();
 
-			if (kData->get_his_count() > 0)
-			{
-				uint32_t thisCnt = min(left, (uint32_t)kData->get_his_count());
-				left -= thisCnt;
-				reaCnt += thisCnt;
-				cb(cHandle, stdCode, period, kData->get_his_addr(), thisCnt, left == 0);
-			}
-
-			if (left > 0 && kData->get_rt_count() > 0)
-			{
-				uint32_t thisCnt = min(left, (uint32_t)kData->get_rt_count());
-				left -= thisCnt;
-				reaCnt += thisCnt;
-				cb(cHandle, stdCode, period, kData->get_rt_addr(), thisCnt, true);
-			}
+			for (uint32_t i = 0; i < kData->get_block_counts(); i++)
+				cb(cHandle, stdCode, period, kData->get_block_addr(i), kData->get_block_size(i), i == kData->get_block_counts() - 1);
 
 			kData->release();
 			return reaCnt;
@@ -909,7 +871,7 @@ WtString hft_cancel_all(CtxHandler cHandle, const char* stdCode, bool isBuy)
 	return ret.c_str();
 }
 
-WtString hft_buy(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag)
+WtString hft_buy(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag, int flag)
 {
 	HftContextPtr ctx = getRunner().getHftContext(cHandle);
 	if (ctx == NULL)
@@ -918,7 +880,7 @@ WtString hft_buy(CtxHandler cHandle, const char* stdCode, double price, double q
 	static std::string ret;
 
 	std::stringstream ss;
-	OrderIDs ids = ctx->stra_buy(stdCode, price, qty, userTag);
+	OrderIDs ids = ctx->stra_buy(stdCode, price, qty, userTag, flag);
 	for (uint32_t localid : ids)
 	{
 		ss << localid << ",";
@@ -930,7 +892,7 @@ WtString hft_buy(CtxHandler cHandle, const char* stdCode, double price, double q
 	return ret.c_str();
 }
 
-WtString hft_sell(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag)
+WtString hft_sell(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag, int flag)
 {
 	HftContextPtr ctx = getRunner().getHftContext(cHandle);
 	if (ctx == NULL)
@@ -939,7 +901,7 @@ WtString hft_sell(CtxHandler cHandle, const char* stdCode, double price, double 
 	static std::string ret;
 
 	std::stringstream ss;
-	OrderIDs ids = ctx->stra_sell(stdCode, price, qty, userTag);
+	OrderIDs ids = ctx->stra_sell(stdCode, price, qty, userTag, flag);
 	for (uint32_t localid : ids)
 	{
 		ss << localid << ",";
@@ -971,8 +933,8 @@ WtString hft_load_userdata(CtxHandler cHandle, const char* key, const char* defV
 #pragma endregion "HFT策略接口"
 
 #pragma region "扩展Parser接口"
-void parser_push_quote(const char* id, WTSTickStruct* curTick, bool bNeedSlice)
+void parser_push_quote(const char* id, WTSTickStruct* curTick, WtUInt32 uProcFlag)
 {
-	getRunner().on_parser_quote(id, curTick, bNeedSlice);
+	getRunner().on_ext_parser_quote(id, curTick, uProcFlag);
 }
 #pragma endregion "扩展Parser接口"

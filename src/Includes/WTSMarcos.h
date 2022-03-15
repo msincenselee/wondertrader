@@ -10,8 +10,12 @@
 #pragma once
 #include <limits.h>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #define MAX_INSTRUMENT_LENGTH	32
-#define MAX_EXCHANGE_LENGTH		10
+#define MAX_EXCHANGE_LENGTH		16
 
 #define STATIC_CONVERT(x,T)		static_cast<T>(x)
 
@@ -45,9 +49,9 @@
 #endif
 #endif
 
-#define NS_OTP_BEGIN	namespace otp{
-#define NS_OTP_END	}//namespace opt
-#define	USING_NS_OTP	using namespace otp
+#define NS_WTP_BEGIN	namespace wtp{
+#define NS_WTP_END	}//namespace wpt
+#define	USING_NS_WTP	using namespace wtp
 
 #ifndef EXPORT_FLAG
 #ifdef _MSC_VER

@@ -83,7 +83,7 @@ void write_log(unsigned int level, const char* message, const char* catName)
 {
 	if (strlen(catName) > 0)
 	{
-		WTSLogger::log2_raw(catName, (WTSLogLevel)level, message);
+		WTSLogger::log_raw_by_cat(catName, (WTSLogLevel)level, message);
 	}
 	else
 	{
@@ -98,9 +98,9 @@ bool create_ext_parser(const char* id)
 	return getRunner().createExtParser(id);
 }
 
-void parser_push_quote(const char* id, WTSTickStruct* curTick, bool bNeedSlice)
+void parser_push_quote(const char* id, WTSTickStruct* curTick, WtUInt32 uProcFlag)
 {
-	getRunner().on_parser_quote(id, curTick, bNeedSlice);
+	getRunner().on_ext_parser_quote(id, curTick, uProcFlag);
 }
 
 void register_parser_callbacks(FuncParserEvtCallback cbEvt, FuncParserSubCallback cbSub)

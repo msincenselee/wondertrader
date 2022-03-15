@@ -17,7 +17,7 @@
 #include "../Share/DLLHelper.hpp"
 #include "../Share/threadpool.hpp"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSVariant;
 class IDataManager;
 class TraderAdapter;
@@ -102,6 +102,7 @@ public:
 
 private:
 	ExecuteUnitPtr	getUnit(const char* code, bool bAutoCreate = true);
+
 public:
 	//////////////////////////////////////////////////////////////////////////
 	//ExecuteContext
@@ -109,7 +110,7 @@ public:
 
 	virtual WTSTickData*	grabLastTick(const char* code) override;
 
-	virtual double		getPosition(const char* code, int32_t flag = 3) override;
+	virtual double		getPosition(const char* stdCode, bool validOnly = true, int32_t flag = 3) override;
 	virtual OrderMap*	getOrders(const char* code) override;
 	virtual double		getUndoneQty(const char* code) override;
 
@@ -117,7 +118,7 @@ public:
 	virtual OrderIDs	sell(const char* code, double price, double qty, bool bForceClose = false) override;
 	virtual bool		cancel(uint32_t localid) override;
 	virtual OrderIDs	cancel(const char* code, bool isBuy, double qty) override;
-	virtual void		writeLog(const char* fmt, ...) override;
+	virtual void		writeLog(const char* message) override;
 
 	virtual WTSCommodityInfo*	getCommodityInfo(const char* stdCode) override;
 	virtual WTSSessionInfo*		getSessionInfo(const char* stdCode) override;
@@ -128,7 +129,7 @@ public:
 	/*
 	 *	设置目标仓位
 	 */
-	virtual void set_position(const faster_hashmap<std::string, double>& targets) override;
+	virtual void set_position(const faster_hashmap<LongKey, double>& targets) override;
 
 
 	/*
@@ -195,4 +196,4 @@ private:
 typedef std::shared_ptr<IExecCommand> ExecCmdPtr;
 typedef std::shared_ptr<WtLocalExecuter> WtExecuterPtr;
 
-NS_OTP_END
+NS_WTP_END

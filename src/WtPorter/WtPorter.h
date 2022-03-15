@@ -23,7 +23,7 @@ extern "C"
 
 	EXPORT_FLAG	void		register_hft_callbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraBarCallback cbBar,
 								FuncHftChannelCallback cbChnl, FuncHftOrdCallback cbOrd, FuncHftTrdCallback cbTrd, FuncHftEntrustCallback cbEntrust,
-								FuncStraOrdDtlCallback cbOrdDtl, FuncStraOrdQueCallback cbOrdQue, FuncStraTransCallback cbTrans, FuncSessionEvtCallback cbSessEvt);
+								FuncStraOrdDtlCallback cbOrdDtl, FuncStraOrdQueCallback cbOrdQue, FuncStraTransCallback cbTrans, FuncSessionEvtCallback cbSessEvt, FuncHftPosCallback cbPosition);
 
 	EXPORT_FLAG void		register_parser_callbacks(FuncParserEvtCallback cbEvt, FuncParserSubCallback cbSub);
 
@@ -31,7 +31,7 @@ extern "C"
 
 	EXPORT_FLAG void		register_ext_data_loader(FuncLoadFnlBars fnlBarLoader, FuncLoadRawBars rawBarLoader, FuncLoadAdjFactors fctLoader, FuncLoadRawTicks tickLoader);
 
-	EXPORT_FLAG void		feed_raw_bars(WTSBarStruct* bars, WtUInt32 count, double factor);
+	EXPORT_FLAG void		feed_raw_bars(WTSBarStruct* bars, WtUInt32 count);
 
 	EXPORT_FLAG void		feed_raw_ticks(WTSTickStruct* ticks, WtUInt32 count);
 
@@ -194,9 +194,9 @@ extern "C"
 
 	EXPORT_FLAG	WtString	hft_cancel_all(CtxHandler cHandle, const char* stdCode, bool isBuy);
 
-	EXPORT_FLAG	WtString	hft_buy(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag);
+	EXPORT_FLAG	WtString	hft_buy(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag, int flag);
 
-	EXPORT_FLAG	WtString	hft_sell(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag);
+	EXPORT_FLAG	WtString	hft_sell(CtxHandler cHandle, const char* stdCode, double price, double qty, const char* userTag, int flag);
 
 	EXPORT_FLAG	void		hft_save_userdata(CtxHandler cHandle, const char* key, const char* val);
 
@@ -204,7 +204,7 @@ extern "C"
 #pragma endregion "HFT接口"
 
 #pragma region "扩展Parser接口"
-	EXPORT_FLAG	void		parser_push_quote(const char* id, WTSTickStruct* curTick, bool bNeedSlice);
+	EXPORT_FLAG	void		parser_push_quote(const char* id, WTSTickStruct* curTick, WtUInt32 uProcFlag);
 #pragma endregion "扩展Parser接口"
 
 #ifdef __cplusplus

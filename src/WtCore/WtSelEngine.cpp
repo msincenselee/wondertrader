@@ -1,5 +1,5 @@
 #include "WtSelEngine.h"
-#include "WtDataManager.h"
+#include "WtDtMgr.h"
 #include "WtSelTicker.h"
 #include "TraderAdapter.h"
 #include "WtHelper.h"
@@ -21,7 +21,7 @@ namespace rj = rapidjson;
 
 #include <atomic>
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 inline uint32_t makeTaskId()
 {
@@ -51,6 +51,8 @@ void WtSelEngine::on_session_begin()
 {
 	if (_evt_listener)
 		_evt_listener->on_session_event(_cur_tdate, true);
+
+	_ready = true;
 }
 
 void WtSelEngine::on_init()
@@ -68,10 +70,10 @@ void WtSelEngine::handle_push_quote(WTSTickData* curTick, uint32_t hotFlag)
 void WtSelEngine::on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar)
 {
 	std::string key = StrUtil::printf("%s-%s-%u", stdCode, period, times);
-	const SIDSet& sids = _bar_sub_map[key];
+	const SubList& sids = _bar_sub_map[key];
 	for (auto it = sids.begin(); it != sids.end(); it++)
 	{
-		uint32_t sid = *it;
+		uint32_t sid = it->first;
 		auto cit = _ctx_map.find(sid);
 		if (cit != _ctx_map.end())
 		{
@@ -94,10 +96,11 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 		_exec_mgr.handle_tick(stdCode, curTick);
 	}
 
+	/*
 	auto sit = _tick_sub_map.find(stdCode);
 	if (sit != _tick_sub_map.end())
 	{
-		const SIDSet& sids = sit->second;
+		const SubList& sids = sit->second;
 		for (auto it = sids.begin(); it != sids.end(); it++)
 		{
 			uint32_t sid = *it;
@@ -107,6 +110,70 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 				SelContextPtr& ctx = (SelContextPtr&)cit->second;
 				ctx->on_tick(stdCode, curTick);
 			}
+		}
+	}
+	*/
+
+	/*
+	 *	By Wesley @ 2022.02.07
+	 *	这里做了一个彻底的调整
+	 *	第一，检查订阅标记，如果标记为0，即无复权模式，则直接按照原始代码触发ontick
+	 *	第二，如果标记为1，即前复权模式，则将代码转成xxxx-，再触发ontick
+	 *	第三，如果标记为2，即后复权模式，则将代码转成xxxx+，再把tick数据做一个修正，再触发ontick
+	 */
+	if(_ready)
+	{
+		auto sit = _tick_sub_map.find(stdCode);
+		if (sit != _tick_sub_map.end())
+		{
+			const SubList& sids = sit->second;
+			for (auto it = sids.begin(); it != sids.end(); it++)
+			{
+				uint32_t sid = it->first;
+
+
+				auto cit = _ctx_map.find(sid);
+				if (cit != _ctx_map.end())
+				{
+					SelContextPtr& ctx = (SelContextPtr&)cit->second;
+					uint32_t opt = it->second.second;
+
+					if (opt == 0)
+					{
+						ctx->on_tick(stdCode, curTick);
+					}
+					else
+					{
+						std::string wCode = stdCode;
+						wCode = fmt::format("{}{}", stdCode, opt == 1 ? SUFFIX_QFQ : SUFFIX_HFQ);
+						if (opt == 1)
+						{
+							ctx->on_tick(wCode.c_str(), curTick);
+						}
+						else //(opt == 2)
+						{
+							WTSTickData* newTick = WTSTickData::create(curTick->getTickStruct());
+							WTSTickStruct& newTS = newTick->getTickStruct();
+
+							//这里做一个复权因子的处理
+							double factor = _data_mgr->get_adjusting_factor(stdCode, get_trading_date());
+							newTS.open *= factor;
+							newTS.high *= factor;
+							newTS.low *= factor;
+							newTS.price *= factor;
+
+							_price_map[wCode] = newTS.price;
+
+							ctx->on_tick(wCode.c_str(), newTick);
+							newTick->release();
+						}
+					}
+
+				}
+
+
+			}
+
 		}
 	}
 }
@@ -267,7 +334,7 @@ void WtSelEngine::run(bool bAsync /*= false*/)
 	_tm_ticker->run();
 }
 
-void WtSelEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDataManager* dataMgr, IHotMgr* hotMgr, EventNotifier* notifier /* = NULL */)
+void WtSelEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDtMgr* dataMgr, IHotMgr* hotMgr, EventNotifier* notifier /* = NULL */)
 {
 	WtEngine::init(cfg, bdMgr, dataMgr, hotMgr, notifier);
 
@@ -319,13 +386,13 @@ void WtSelEngine::handle_pos_change(const char* stdCode, double diffQty)
 	{
 		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
 	}
 	else if (CodeHelper::isStdFut2ndCode(stdCode))
 	{
 		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
 		std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-		realCode = CodeHelper::rawFutCodeToStdCode(code.c_str(), cInfo._exchg);
+		realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
 	}
 
 	PosInfo& pItem = _pos_map[realCode];
@@ -334,7 +401,7 @@ void WtSelEngine::handle_pos_change(const char* stdCode, double diffQty)
 	bool bRiskEnabled = false;
 	if (!decimal::eq(_risk_volscale, 1.0) && _risk_date == _cur_tdate)
 	{
-		WTSLogger::info2("risk", "Risk scale of Strategy Group is %.2f", _risk_volscale);
+		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of Strategy Group is %.2f", _risk_volscale);
 		bRiskEnabled = true;
 	}
 	if (bRiskEnabled && targetPos != 0)

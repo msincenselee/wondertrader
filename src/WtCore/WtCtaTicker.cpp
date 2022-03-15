@@ -19,7 +19,7 @@
 
 #include "../WTSTools/WTSLogger.h"
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 //////////////////////////////////////////////////////////////////////////
 //WtTimeTicker
@@ -27,6 +27,10 @@ void WtCtaRtTicker::init(IDataReader* store, const char* sessionID)
 {
 	_store = store;
 	_s_info = _engine->get_session_info(sessionID);
+	if(_s_info == NULL)
+		WTSLogger::fatal_f("Session {} is invalid, CtaTicker cannot run correctly", sessionID);
+	else
+		WTSLogger::info_f("CtaTicker will drive engine with session {}", sessionID);
 
 	TimeUtils::getDateTime(_date, _time);
 }
@@ -102,7 +106,7 @@ void WtCtaRtTicker::on_tick(WTSTickData* curTick, uint32_t hotFlag /* = 0 */)
 			uint32_t thisMin = _s_info->minuteToTime(_cur_pos);
 			
 			bool bEndingTDate = false;
-			uint32_t offMin = _s_info->offsetTime(thisMin);
+			uint32_t offMin = _s_info->offsetTime(thisMin, true);
 			if (offMin == _s_info->getCloseTime(true))
 				bEndingTDate = true;
 
@@ -117,12 +121,15 @@ void WtCtaRtTicker::on_tick(WTSTickData* curTick, uint32_t hotFlag /* = 0 */)
 				_engine->on_session_end();
 		}
 
-		trigger_price(curTick, hotFlag);
+		//By Wesley @ 2022.02.09
+		//这里先修改时间，再调用trigger_price
+		//无论分钟线是否切换，先修改时间都是对的
 		if (_engine)
 		{
 			_engine->set_date_time(_date, curMin, curSec, rawMin);
 			_engine->set_trading_date(curTick->tradingdate());
 		}
+		trigger_price(curTick, hotFlag);
 
 		_cur_pos = minutes;
 	}
@@ -157,7 +164,7 @@ void WtCtaRtTicker::run()
 	_thrd.reset(new StdThread([this](){
 		while(!_stopped)
 		{
-			uint32_t offTime = _s_info->offsetTime(_engine->get_min_time());
+			uint32_t offTime = _s_info->offsetTime(_engine->get_min_time(), true);
 
 			if (_time != UINT_MAX && _s_info->isInTradingTime(_time / 100000, true))
 			{
@@ -187,7 +194,7 @@ void WtCtaRtTicker::run()
 					}
 
 					bool bEndingTDate = false;
-					uint32_t offMin = _s_info->offsetTime(thisMin);
+					uint32_t offMin = _s_info->offsetTime(thisMin, true);
 					if (offMin == _s_info->getCloseTime(true))
 						bEndingTDate = true;
 

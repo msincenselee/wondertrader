@@ -13,8 +13,8 @@
 #include "../Includes/WTSSessionInfo.hpp"
 #include "../Includes/WTSVariant.hpp"
 #include "../WTSUtils/SignalHook.hpp"
-#include "../Share/JsonToVariant.hpp"
 
+#include "../WTSUtils/WTSCfgLoader.h"
 #include "../WTSTools/WTSLogger.h"
 
 
@@ -22,9 +22,14 @@ WtDtRunner::WtDtRunner()
 	: _data_store(NULL)
 	, _is_inited(false)
 {
+#if _WIN32
+#pragma message("Signal hooks disabled in WIN32")
+#else
+#pragma message("Signal hooks enabled in UNIX")
 	install_signal_hooks([](const char* message) {
 		WTSLogger::error(message);
 	});
+#endif
 }
 
 
@@ -43,29 +48,19 @@ void WtDtRunner::initialize(const char* cfgFile, bool isFile /* = true */, const
 	WTSLogger::init();
 	WtHelper::set_module_dir(modDir);
 
-	std::string json;
-	if (isFile)
-		StdFile::read_file_content(cfgFile, json);
-	else
-		json = cfgFile;
-
-	if(json.empty())
+	WTSVariant* config = isFile ? WTSCfgLoader::load_from_file(cfgFile, true) : WTSCfgLoader::load_from_content(cfgFile, false, true);
+	if(config == NULL)
 	{
-		throw std::runtime_error("configuration file not exists");
+		WTSLogger::error("Loading config failed");
 		return;
 	}
 
-	rj::Document document;
-	document.Parse(json.c_str());
-
-	WTSVariant* config = WTSVariant::createObject();
-	jsonToVariant(document, config);
-
 	//基础数据文件
 	WTSVariant* cfgBF = config->get("basefiles");
+	bool isUTF8 = cfgBF->getBoolean("utf-8");
 	if (cfgBF->get("session"))
 	{
-		_bd_mgr.loadSessions(cfgBF->getCString("session"));
+		_bd_mgr.loadSessions(cfgBF->getCString("session"), isUTF8);
 		WTSLogger::info("Trading sessions loaded");
 	}
 
@@ -74,13 +69,13 @@ void WtDtRunner::initialize(const char* cfgFile, bool isFile /* = true */, const
 	{
 		if (cfgItem->type() == WTSVariant::VT_String)
 		{
-			_bd_mgr.loadCommodities(cfgItem->asCString());
+			_bd_mgr.loadCommodities(cfgItem->asCString(), isUTF8);
 		}
 		else if (cfgItem->type() == WTSVariant::VT_Array)
 		{
 			for (uint32_t i = 0; i < cfgItem->size(); i++)
 			{
-				_bd_mgr.loadCommodities(cfgItem->get(i)->asCString());
+				_bd_mgr.loadCommodities(cfgItem->get(i)->asCString(), isUTF8);
 			}
 		}
 	}
@@ -90,13 +85,13 @@ void WtDtRunner::initialize(const char* cfgFile, bool isFile /* = true */, const
 	{
 		if (cfgItem->type() == WTSVariant::VT_String)
 		{
-			_bd_mgr.loadContracts(cfgItem->asCString());
+			_bd_mgr.loadContracts(cfgItem->asCString(), isUTF8);
 		}
 		else if (cfgItem->type() == WTSVariant::VT_Array)
 		{
 			for (uint32_t i = 0; i < cfgItem->size(); i++)
 			{
-				_bd_mgr.loadContracts(cfgItem->get(i)->asCString());
+				_bd_mgr.loadContracts(cfgItem->get(i)->asCString(), isUTF8);
 			}
 		}
 	}
@@ -183,7 +178,7 @@ WTSKlineSlice* WtDtRunner::get_bars_by_range(const char* stdCode, const char* pe
 	return _data_mgr.get_kline_slice_by_range(stdCode, kp, realTimes, beginTime, endTime);
 }
 
-WTSArray* WtDtRunner::get_ticks_by_range(const char* stdCode, uint64_t beginTime, uint64_t endTime /* = 0 */)
+WTSTickSlice* WtDtRunner::get_ticks_by_range(const char* stdCode, uint64_t beginTime, uint64_t endTime /* = 0 */)
 {
 	if (!_is_inited)
 	{
@@ -247,7 +242,7 @@ WTSKlineSlice* WtDtRunner::get_bars_by_count(const char* stdCode, const char* pe
 	return _data_mgr.get_kline_slice_by_count(stdCode, kp, realTimes, count, endTime);
 }
 
-WTSArray* WtDtRunner::get_ticks_by_count(const char* stdCode, uint32_t count, uint64_t endTime /* = 0 */)
+WTSTickSlice* WtDtRunner::get_ticks_by_count(const char* stdCode, uint32_t count, uint64_t endTime /* = 0 */)
 {
 	if (!_is_inited)
 	{

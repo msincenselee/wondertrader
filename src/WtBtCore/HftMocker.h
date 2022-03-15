@@ -19,6 +19,7 @@
 
 #include "../Share/StdUtils.hpp"
 #include "../Share/DLLHelper.hpp"
+#include "../Share/fmtlib.h"
 
 class HisDataReplayer;
 
@@ -27,6 +28,28 @@ class HftMocker : public IDataSink, public IHftStraCtx
 public:
 	HftMocker(HisDataReplayer* replayer, const char* name);
 	virtual ~HftMocker();
+
+private:
+	template<typename... Args>
+	void log_debug(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_debug(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_info(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_info(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_error(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_error(s.c_str());
+	}
 
 public:
 	//////////////////////////////////////////////////////////////////////////
@@ -74,9 +97,9 @@ public:
 
 	virtual OrderIDs stra_cancel(const char* stdCode, bool isBuy, double qty = 0) override;
 
-	virtual OrderIDs stra_buy(const char* stdCode, double price, double qty, const char* userTag) override;
+	virtual OrderIDs stra_buy(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
 
-	virtual OrderIDs stra_sell(const char* stdCode, double price, double qty, const char* userTag) override;
+	virtual OrderIDs stra_sell(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
 
 	virtual WTSCommodityInfo* stra_get_comminfo(const char* stdCode) override;
 
@@ -114,9 +137,9 @@ public:
 
 	virtual void stra_sub_transactions(const char* stdCode) override;
 
-	virtual void stra_log_info(const char* fmt, ...) override;
-	virtual void stra_log_debug(const char* fmt, ...) override;
-	virtual void stra_log_error(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* message) override;
+	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_error(const char* message) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
@@ -289,5 +312,8 @@ protected:
 	bool			_has_hook;		//这是人为控制是否启用钩子
 	bool			_hook_valid;	//这是根据是否是异步回测模式而确定钩子是否可用
 	std::atomic<bool>	_resumed;	//临时变量，用于控制状态
+
+	//tick订阅列表
+	faster_hashset<std::string> _tick_subs;
 };
 

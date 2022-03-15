@@ -16,10 +16,9 @@
 #include "../Includes/WTSVariant.hpp"
 #include "../Includes/WTSDataDef.hpp"
 
-#include "../Share/JsonToVariant.hpp"
-#include "../Share/DLLHelper.hpp"
 #include "../Share/StrUtil.hpp"
 
+#include "../WTSUtils/WTSCfgLoader.h"
 #include "../WTSTools/WTSLogger.h"
 #include "../WTSUtils/SignalHook.hpp"
 
@@ -31,9 +30,14 @@ WtDtRunner::WtDtRunner()
 	, _dumper_for_orddtl(NULL)
 	, _dumper_for_trans(NULL)
 {
+#if _WIN32
+#pragma message("Signal hooks disabled in WIN32")
+#else
+#pragma message("Signal hooks enabled in UNIX")
 	install_signal_hooks([](const char* message) {
 		WTSLogger::error(message);
 	});
+#endif
 }
 
 
@@ -41,7 +45,7 @@ WtDtRunner::~WtDtRunner()
 {
 }
 
-void WtDtRunner::start(bool bAsync/* = false*/)
+void WtDtRunner::start(bool bAsync /* = false */, bool bAlldayMode /* = false */)
 {
 	_parsers.run();
 
@@ -67,19 +71,19 @@ void WtDtRunner::initialize(const char* cfgFile, const char* logCfg, const char*
 	WTSLogger::init(logCfg);
 	WtHelper::set_module_dir(modDir);
 
-	std::string json;
-	StdFile::read_file_content(cfgFile, json);
-	rj::Document document;
-	document.Parse(json.c_str());
-
-	WTSVariant* config = WTSVariant::createObject();
-	jsonToVariant(document, config);
+	WTSVariant* config = WTSCfgLoader::load_from_file(cfgFile, true);
+	if(config == NULL)
+	{
+		WTSLogger::error_f("Loading config file {} failed", cfgFile);
+		return;
+	}
 
 	//基础数据文件
 	WTSVariant* cfgBF = config->get("basefiles");
+	bool isUTF8 = cfgBF->getBoolean("utf-8");
 	if (cfgBF->get("session"))
 	{
-		_bd_mgr.loadSessions(cfgBF->getCString("session"));
+		_bd_mgr.loadSessions(cfgBF->getCString("session"), isUTF8);
 		WTSLogger::info("Trading sessions loaded");
 	}
 
@@ -88,13 +92,13 @@ void WtDtRunner::initialize(const char* cfgFile, const char* logCfg, const char*
 	{
 		if (cfgItem->type() == WTSVariant::VT_String)
 		{
-			_bd_mgr.loadCommodities(cfgItem->asCString());
+			_bd_mgr.loadCommodities(cfgItem->asCString(), isUTF8);
 		}
 		else if (cfgItem->type() == WTSVariant::VT_Array)
 		{
 			for (uint32_t i = 0; i < cfgItem->size(); i++)
 			{
-				_bd_mgr.loadCommodities(cfgItem->get(i)->asCString());
+				_bd_mgr.loadCommodities(cfgItem->get(i)->asCString(), isUTF8);
 			}
 		}
 	}
@@ -104,13 +108,13 @@ void WtDtRunner::initialize(const char* cfgFile, const char* logCfg, const char*
 	{
 		if (cfgItem->type() == WTSVariant::VT_String)
 		{
-			_bd_mgr.loadContracts(cfgItem->asCString());
+			_bd_mgr.loadContracts(cfgItem->asCString(), isUTF8);
 		}
 		else if (cfgItem->type() == WTSVariant::VT_Array)
 		{
 			for (uint32_t i = 0; i < cfgItem->size(); i++)
 			{
-				_bd_mgr.loadContracts(cfgItem->get(i)->asCString());
+				_bd_mgr.loadContracts(cfgItem->get(i)->asCString(), isUTF8);
 			}
 		}
 	}
@@ -121,44 +125,59 @@ void WtDtRunner::initialize(const char* cfgFile, const char* logCfg, const char*
 		WTSLogger::info("Holidays loaded");
 	}
 
-	if (cfgBF->get("hot"))
-	{
-		_hot_mgr.loadHots(cfgBF->getCString("hot"));
-		WTSLogger::info("Hot rules loaded");
-	}
-
-	if (cfgBF->get("second"))
-	{
-		_hot_mgr.loadSeconds(cfgBF->getCString("second"));
-		WTSLogger::info("Second rules loaded");
-	}
+    /*
+     *  By Wesley @ 2021.12.27
+     *  数据组件实际上不需要单独处理主力合约
+     */
+//	if (cfgBF->get("hot"))//	{
+//		_hot_mgr.loadHots(cfgBF->getCString("hot"));
+//		WTSLogger::info("Hot rules loaded");
+//	}
+//
+//	if (cfgBF->get("second"))
+//	{
+//		_hot_mgr.loadSeconds(cfgBF->getCString("second"));
+//		WTSLogger::info("Second rules loaded");
+//	}
 
 	_udp_caster.init(config->get("broadcaster"), &_bd_mgr, &_data_mgr);
 
-	initDataMgr(config->get("writer"));
+	//By Wesley @ 2021.12.27
+	//全天候模式，不需要再使用状态机
+	bool bAlldayMode = config->getBoolean("allday");
+	if (!bAlldayMode)
+	{
+		_state_mon.initialize(config->getCString("statemonitor"), &_bd_mgr, &_data_mgr);
+	}
+	else
+	{
+		WTSLogger::info("QuoteFactory will run in allday mode");
+	}
 
-	_state_mon.initialize(config->getCString("statemonitor"), &_bd_mgr, &_data_mgr);
+	initDataMgr(config->get("writer"), bAlldayMode);
 
-	initParsers(config->getCString("parsers"));
+	if (config->has("parsers"))
+		initParsers(config->getCString("parsers"));
+	else
+		WTSLogger::log_raw(LL_WARN, "No parsers config, skipped loading parsers");
 
 	config->release();
 }
 
-void WtDtRunner::initDataMgr(WTSVariant* config)
+void WtDtRunner::initDataMgr(WTSVariant* config, bool bAlldayMode /* = false */)
 {
-	bool bDumperEnabled = (_dumper_for_bars != NULL || _dumper_for_ticks != NULL);
-	_data_mgr.init(config, &_bd_mgr, &_state_mon, &_udp_caster);
+	_data_mgr.init(config, &_bd_mgr, bAlldayMode ? NULL : &_state_mon, &_udp_caster);
 }
 
 void WtDtRunner::initParsers(const char* filename)
 {
-	std::string json;
-	StdFile::read_file_content(filename, json);
-	rj::Document document;
-	document.Parse(json.c_str());
+	WTSVariant* config = WTSCfgLoader::load_from_file(filename, true);
+	if(config == NULL)
+	{
+		WTSLogger::error_f("Loading parser file {} failed", filename);
+		return;
+	}
 
-	WTSVariant* config = WTSVariant::createObject();
-	jsonToVariant(document, config);
 	WTSVariant* cfg = config->get("parsers");
 
 	for (uint32_t idx = 0; idx < cfg->size(); idx++)
@@ -232,14 +251,18 @@ void WtDtRunner::parser_unsubscribe(const char* id, const char* code)
 		_cb_parser_sub(id, code, false);
 }
 
-void WtDtRunner::on_parser_quote(const char* id, WTSTickStruct* curTick, bool bNeedSlice /* = true */)
+void WtDtRunner::on_ext_parser_quote(const char* id, WTSTickStruct* curTick, uint32_t uProcFlag)
 {
 	ParserAdapterPtr adapter = _parsers.getAdapter(id);
 	if (adapter)
 	{
 		WTSTickData* newTick = WTSTickData::create(*curTick);
-		adapter->handleQuote(newTick, bNeedSlice);
+		adapter->handleQuote(newTick, uProcFlag);
 		newTick->release();
+	}
+	else
+	{
+		WTSLogger::warn_f("Parser {} not exists", id);
 	}
 }
 

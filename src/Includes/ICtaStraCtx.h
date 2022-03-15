@@ -13,7 +13,7 @@
 #include <functional>
 #include "../Includes/WTSMarcos.h"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSCommodityInfo;
 class WTSTickData;
 struct WTSBarStruct;
@@ -100,9 +100,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) = 0;
 
-	virtual void stra_log_info(const char* fmt, ...) = 0;
-	virtual void stra_log_debug(const char* fmt, ...) = 0;
-	virtual void stra_log_error(const char* fmt, ...) = 0;
+	virtual void stra_log_info(const char* message) = 0;
+	virtual void stra_log_debug(const char* message) = 0;
+	virtual void stra_log_error(const char* message) = 0;
 
 	virtual void stra_save_user_data(const char* key, const char* val){}
 
@@ -112,4 +112,4 @@ protected:
 	std::string _name;
 };
 
-NS_OTP_END
+NS_WTP_END

@@ -27,9 +27,6 @@
     <ClInclude Include="WTSHotMgr.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="WTSCmpHelper.hpp">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="CsvHelper.h">
       <Filter>头文件</Filter>
     </ClInclude>

@@ -175,7 +175,6 @@
   <ItemGroup>
     <ClInclude Include="CsvHelper.h" />
     <ClInclude Include="WTSBaseDataMgr.h" />
-    <ClInclude Include="WTSCmpHelper.hpp" />
     <ClInclude Include="WTSDataFactory.h" />
     <ClInclude Include="WTSHotMgr.h" />
     <ClInclude Include="WTSLogger.h" />

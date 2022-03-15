@@ -1,5 +1,4 @@
-// TestExecPorter.cpp : 定义控制台应用程序的入口点。
-//
+#define _CRT_SECURE_NO_WARNINGS
 #include "../WtExecMon/WtExecPorter.h"
 #include "../Share/DLLHelper.hpp"
 
@@ -11,13 +10,13 @@ void test_exec()
 	DLLHelper::load_library("libWtExecMon.so");
 #endif
 
-	init_exec("logcfgexec.json");
+	init_exec("logcfgexec.yaml");
 
-	config_exec("config_exec.json");
+	config_exec("config_exec.yaml");
 
 	run_exec();
 
-	set_position("CFFEX.IF.2007", 1);
+	set_position("CFFEX.IF.HOT", 1);
 
 	printf("press enter key to exit\n");
 	getchar();

@@ -1,21 +1,35 @@
 #include "WtDataReader.h"
 
 #include "../Includes/WTSVariant.hpp"
-#include "../Share/ModuleHelper.hpp"
 #include "../Share/TimeUtils.hpp"
 #include "../Share/CodeHelper.hpp"
 #include "../Share/StdUtils.hpp"
-#include "../Share/DLLHelper.hpp"
 
 #include "../Includes/WTSContractInfo.hpp"
 #include "../Includes/IBaseDataMgr.h"
 #include "../Includes/IHotMgr.h"
 #include "../Includes/WTSDataDef.hpp"
 
-#include "../WTSTools/WTSCmpHelper.hpp"
+#include "../WTSUtils/WTSCmpHelper.hpp"
+#include "../WTSUtils/WTSCfgLoader.h"
 
 #include <rapidjson/document.h>
 namespace rj = rapidjson;
+
+//By Wesley @ 2022.01.05
+#include "../Share/fmtlib.h"
+template<typename... Args>
+inline void pipe_reader_log(IDataReaderSink* sink, WTSLogLevel ll, const char* format, const Args&... args)
+{
+	if (sink == NULL)
+		return;
+
+	static thread_local char buffer[512] = { 0 };
+	memset(buffer, 0, 512);
+	fmt::format_to(buffer, format, args...);
+
+	sink->reader_log(ll, buffer);
+}
 
 extern "C"
 {
@@ -31,6 +45,97 @@ extern "C"
 			delete reader;
 	}
 };
+
+/*
+ *	处理块数据
+ */
+bool proc_block_data(std::string& content, bool isBar, bool bKeepHead /* = true */)
+{
+	BlockHeader* header = (BlockHeader*)content.data();
+
+	bool bCmped = header->is_compressed();
+	bool bOldVer = header->is_old_version();
+
+	//如果既没有压缩，也不是老版本结构体，则直接返回
+	if (!bCmped && !bOldVer)
+	{
+		if (!bKeepHead)
+			content.erase(0, BLOCK_HEADER_SIZE);
+		return true;
+	}
+
+	std::string buffer;
+	if (bCmped)
+	{
+		BlockHeaderV2* blkV2 = (BlockHeaderV2*)content.c_str();
+
+		if (content.size() != (sizeof(BlockHeaderV2) + blkV2->_size))
+		{
+			return false;
+		}
+
+		//将文件头后面的数据进行解压
+		buffer = WTSCmpHelper::uncompress_data(content.data() + BLOCK_HEADERV2_SIZE, (uint32_t)blkV2->_size);
+	}
+	else
+	{
+		if (!bOldVer)
+		{
+			//如果不是老版本，直接返回
+			if (!bKeepHead)
+				content.erase(0, BLOCK_HEADER_SIZE);
+			return true;
+		}
+		else
+		{
+			buffer.append(content.data() + BLOCK_HEADER_SIZE, content.size() - BLOCK_HEADER_SIZE);
+		}
+	}
+
+	if (bOldVer)
+	{
+		if (isBar)
+		{
+			std::string bufV2;
+			uint32_t barcnt = buffer.size() / sizeof(WTSBarStructOld);
+			bufV2.resize(barcnt * sizeof(WTSBarStruct));
+			WTSBarStruct* newBar = (WTSBarStruct*)bufV2.data();
+			WTSBarStructOld* oldBar = (WTSBarStructOld*)buffer.data();
+			for (uint32_t idx = 0; idx < barcnt; idx++)
+			{
+				newBar[idx] = oldBar[idx];
+			}
+			buffer.swap(bufV2);
+		}
+		else
+		{
+			uint32_t tick_cnt = buffer.size() / sizeof(WTSTickStructOld);
+			std::string bufv2;
+			bufv2.resize(sizeof(WTSTickStruct)*tick_cnt);
+			WTSTickStruct* newTick = (WTSTickStruct*)bufv2.data();
+			WTSTickStructOld* oldTick = (WTSTickStructOld*)buffer.data();
+			for (uint32_t i = 0; i < tick_cnt; i++)
+			{
+				newTick[i] = oldTick[i];
+			}
+			buffer.swap(bufv2);
+		}
+	}
+
+	if (bKeepHead)
+	{
+		content.resize(BLOCK_HEADER_SIZE);
+		content.append(buffer);
+		header = (BlockHeader*)content.data();
+		header->_version = BLOCK_VERSION_RAW_V2;
+	}
+	else
+	{
+		content.swap(buffer);
+	}
+
+	return true;
+}
 
 
 WtDataReader::WtDataReader()
@@ -57,6 +162,7 @@ void WtDataReader::init(WTSVariant* cfg, IDataReaderSink* sink, IHisDataLoader* 
 
 	_base_dir = cfg->getCString("path");
 	_base_dir = StrUtil::standardisePath(_base_dir);
+	pipe_reader_log(sink, LL_DEBUG, "Storage initialized @ {}", _base_dir);
 	
 	/*
 	 *	By Wesley @ 2021.12.20
@@ -67,6 +173,8 @@ void WtDataReader::init(WTSVariant* cfg, IDataReaderSink* sink, IHisDataLoader* 
 
 	if (!bLoaded && cfg->has("adjfactor"))
 		loadStkAdjFactorsFromFile(cfg->getCString("adjfactor"));
+	else
+		pipe_reader_log(sink, LL_INFO, "No adjusting factor file configured, loading skipped");
 }
 
 bool WtDataReader::loadStkAdjFactorsFromLoader()
@@ -98,7 +206,7 @@ bool WtDataReader::loadStkAdjFactorsFromLoader()
 		});
 	});
 
-	if (ret && _sink) _sink->reader_log(LL_INFO, "Adjusting factors of %u contracts loaded via extended loader", _adj_factors.size());
+	if (ret && _sink) pipe_reader_log(_sink,LL_INFO, "Adjusting factors of {} contracts loaded via extended loader", _adj_factors.size());
 	return ret;
 }
 
@@ -106,33 +214,26 @@ bool WtDataReader::loadStkAdjFactorsFromFile(const char* adjfile)
 {
 	if(!StdFile::exists(adjfile))
 	{
-		if (_sink) _sink->reader_log(LL_ERROR, "除权因子文件%s不存在", adjfile);
+		pipe_reader_log(_sink,LL_ERROR, "Adjusting factors file {} not exists", adjfile);
 		return false;
 	}
 
-	std::string content;
-    StdFile::read_file_content(adjfile, content);
-
-	rj::Document doc;
-	doc.Parse(content.c_str());
-
-	if(doc.HasParseError())
+	WTSVariant* doc = WTSCfgLoader::load_from_file(adjfile, true);
+	if(doc == NULL)
 	{
-		if (_sink) _sink->reader_log(LL_ERROR, "除权因子文件%s解析失败", adjfile);
+		pipe_reader_log(_sink, LL_ERROR, "Loading adjusting factors file {} failed", adjfile);
 		return false;
 	}
 
 	uint32_t stk_cnt = 0;
 	uint32_t fct_cnt = 0;
-	for (auto& mExchg : doc.GetObject())
+	for (const std::string& exchg : doc->memberNames())
 	{
-		const char* exchg = mExchg.name.GetString();
-		const rj::Value& itemExchg = mExchg.value;
-		for(auto& mCode : itemExchg.GetObject())
+		WTSVariant* itemExchg = doc->get(exchg);
+		for(const std::string& code : itemExchg->memberNames())
 		{
-			std::string code = mCode.name.GetString();
-			const rj::Value& ayFacts = mCode.value;
-			if(!ayFacts.IsArray() )
+			WTSVariant* ayFacts = itemExchg->get(code);
+			if(!ayFacts->isArray() )
 				continue;
 
 			/*
@@ -144,18 +245,19 @@ bool WtDataReader::loadStkAdjFactorsFromFile(const char* adjfile)
 
 			std::string key;
 			if (bHasPID)
-				key = StrUtil::printf("%s.%s", exchg, code);
+				key = fmt::format("{}.{}", exchg, code);
 			else
-				key = StrUtil::printf("%s.STK.s", exchg, code);
+				key = fmt::format("{}.STK.{}", exchg, code);
 
 			stk_cnt++;
 
 			AdjFactorList& fctrLst = _adj_factors[key];
-			for (auto& fItem : ayFacts.GetArray())
+			for (uint32_t i = 0; i < ayFacts->size(); i++)
 			{
+				WTSVariant* fItem = ayFacts->get(i);
 				AdjFactor adjFact;
-				adjFact._date = fItem["date"].GetUint();
-				adjFact._factor = fItem["factor"].GetDouble();
+				adjFact._date = fItem->getUInt32("date");
+				adjFact._factor = fItem->getDouble("factor");
 
 				fctrLst.emplace_back(adjFact);
 				fct_cnt++;
@@ -173,13 +275,15 @@ bool WtDataReader::loadStkAdjFactorsFromFile(const char* adjfile)
 		}
 	}
 
-	if (_sink) _sink->reader_log(LL_INFO, "共加载%u只股票的%u条除权因子数据", stk_cnt, fct_cnt);
+	pipe_reader_log(_sink,LL_INFO, "{} adjusting factors of {} tickers loaded", fct_cnt, stk_cnt);
+	doc->release();
 	return true;
 }
 
 WTSTickSlice* WtDataReader::readTickSlice(const char* stdCode, uint32_t count, uint64_t etime /* = 0 */)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
 	uint32_t curDate, curTime, curSecs;
@@ -205,12 +309,10 @@ WTSTickSlice* WtDataReader::readTickSlice(const char* stdCode, uint32_t count, u
 	bool isToday = (endTDate == curTDate);
 
 	std::string curCode = cInfo._code;
-	if (cInfo.isHot() && cInfo.isFuture())
+	if (cInfo.isHot() && commInfo->isFuture())
 		curCode = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, endTDate);
-	else if (cInfo.isSecond() && cInfo.isFuture())
+	else if (cInfo.isSecond() && commInfo->isFuture())
 		curCode = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, endTDate);
-
-	std::vector<WTSTickStruct>	ayTicks;
 
 	//比较时间的对象
 	WTSTickStruct eTick;
@@ -263,32 +365,12 @@ WTSTickSlice* WtDataReader::readTickSlice(const char* stdCode, uint32_t count, u
 			StdFile::read_file_content(filename.c_str(), tBlkPair._buffer);
 			if (tBlkPair._buffer.size() < sizeof(HisTickBlock))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史Tick数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "Sizechecking of his tick data file {} failed", filename);
 				tBlkPair._buffer.clear();
 				return NULL;
 			}
 
-			HisTickBlock* tBlock = (HisTickBlock*)tBlkPair._buffer.c_str();
-			if (tBlock->_version == BLOCK_VERSION_CMP)
-			{
-				//压缩版本,要重新检查文件大小
-				HisTickBlockV2* tBlockV2 = (HisTickBlockV2*)tBlkPair._buffer.c_str();
-
-				if (tBlkPair._buffer.size() != (sizeof(HisTickBlockV2) + tBlockV2->_size))
-				{
-					if (_sink) _sink->reader_log(LL_ERROR, "历史Tick数据文件%s大小校验失败", filename.c_str());
-					return NULL;
-				}
-
-				//需要解压
-				std::string buf = WTSCmpHelper::uncompress_data(tBlockV2->_data, (uint32_t)tBlockV2->_size);
-
-				//将原来的buffer只保留一个头部,并将所有tick数据追加到尾部
-				tBlkPair._buffer.resize(sizeof(HisTickBlock));
-				tBlkPair._buffer.append(buf);
-				tBlockV2->_version = BLOCK_VERSION_RAW;
-			}
-			
+			proc_block_data(tBlkPair._buffer, false, true);			
 			tBlkPair._block = (HisTickBlock*)tBlkPair._buffer.c_str();
 		}
 		
@@ -326,6 +408,7 @@ WTSTickSlice* WtDataReader::readTickSlice(const char* stdCode, uint32_t count, u
 WTSOrdQueSlice* WtDataReader::readOrdQueSlice(const char* stdCode, uint32_t count, uint64_t etime /* = 0 */)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
 	uint32_t curDate, curTime, curSecs;
@@ -351,9 +434,9 @@ WTSOrdQueSlice* WtDataReader::readOrdQueSlice(const char* stdCode, uint32_t coun
 	bool isToday = (endTDate == curTDate);
 
 	std::string curCode = cInfo._code;
-	if (cInfo.isHot() && cInfo.isFuture())
+	if (cInfo.isHot() && commInfo->isFuture())
 		curCode = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, endTDate);
-	else if (cInfo.isSecond() && cInfo.isFuture())
+	else if (cInfo.isSecond() && commInfo->isFuture())
 		curCode = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, endTDate);
 
 	//比较时间的对象
@@ -407,7 +490,7 @@ WTSOrdQueSlice* WtDataReader::readOrdQueSlice(const char* stdCode, uint32_t coun
 			StdFile::read_file_content(filename.c_str(), hisBlkPair._buffer);
 			if (hisBlkPair._buffer.size() < sizeof(HisOrdQueBlockV2))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史委托队列数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史委托队列数据文件{}大小校验失败", filename);
 				hisBlkPair._buffer.clear();
 				return NULL;
 			}
@@ -416,7 +499,7 @@ WTSOrdQueSlice* WtDataReader::readOrdQueSlice(const char* stdCode, uint32_t coun
 
 			if (hisBlkPair._buffer.size() != (sizeof(HisOrdQueBlockV2) + tBlockV2->_size))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史委托队列数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史委托队列数据文件{}大小校验失败", filename);
 				return NULL;
 			}
 
@@ -426,7 +509,7 @@ WTSOrdQueSlice* WtDataReader::readOrdQueSlice(const char* stdCode, uint32_t coun
 			//将原来的buffer只保留一个头部,并将所有tick数据追加到尾部
 			hisBlkPair._buffer.resize(sizeof(HisOrdQueBlock));
 			hisBlkPair._buffer.append(buf);
-			tBlockV2->_version = BLOCK_VERSION_RAW;
+			tBlockV2->_version = BLOCK_VERSION_RAW_V2;
 
 			hisBlkPair._block = (HisOrdQueBlock*)hisBlkPair._buffer.c_str();
 		}
@@ -465,6 +548,7 @@ WTSOrdQueSlice* WtDataReader::readOrdQueSlice(const char* stdCode, uint32_t coun
 WTSOrdDtlSlice* WtDataReader::readOrdDtlSlice(const char* stdCode, uint32_t count, uint64_t etime /* = 0 */)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
 	uint32_t curDate, curTime, curSecs;
@@ -490,9 +574,9 @@ WTSOrdDtlSlice* WtDataReader::readOrdDtlSlice(const char* stdCode, uint32_t coun
 	bool isToday = (endTDate == curTDate);
 
 	std::string curCode = cInfo._code;
-	if (cInfo.isHot() && cInfo.isFuture())
+	if (cInfo.isHot() && commInfo->isFuture())
 		curCode = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, endTDate);
-	else if (cInfo.isSecond() && cInfo.isFuture())
+	else if (cInfo.isSecond() && commInfo->isFuture())
 		curCode = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, endTDate);
 
 	//比较时间的对象
@@ -546,7 +630,7 @@ WTSOrdDtlSlice* WtDataReader::readOrdDtlSlice(const char* stdCode, uint32_t coun
 			StdFile::read_file_content(filename.c_str(), hisBlkPair._buffer);
 			if (hisBlkPair._buffer.size() < sizeof(HisOrdDtlBlockV2))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史逐笔委托数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史逐笔委托数据文件{}大小校验失败", filename.c_str());
 				hisBlkPair._buffer.clear();
 				return NULL;
 			}
@@ -555,7 +639,7 @@ WTSOrdDtlSlice* WtDataReader::readOrdDtlSlice(const char* stdCode, uint32_t coun
 
 			if (hisBlkPair._buffer.size() != (sizeof(HisOrdDtlBlockV2) + tBlockV2->_size))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史逐笔委托数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史逐笔委托数据文件{}大小校验失败", filename.c_str());
 				return NULL;
 			}
 
@@ -565,7 +649,7 @@ WTSOrdDtlSlice* WtDataReader::readOrdDtlSlice(const char* stdCode, uint32_t coun
 			//将原来的buffer只保留一个头部,并将所有tick数据追加到尾部
 			hisBlkPair._buffer.resize(sizeof(HisOrdDtlBlock));
 			hisBlkPair._buffer.append(buf);
-			tBlockV2->_version = BLOCK_VERSION_RAW;
+			tBlockV2->_version = BLOCK_VERSION_RAW_V2;
 
 			hisBlkPair._block = (HisOrdDtlBlock*)hisBlkPair._buffer.c_str();
 		}
@@ -604,6 +688,7 @@ WTSOrdDtlSlice* WtDataReader::readOrdDtlSlice(const char* stdCode, uint32_t coun
 WTSTransSlice* WtDataReader::readTransSlice(const char* stdCode, uint32_t count, uint64_t etime /* = 0 */)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
 	uint32_t curDate, curTime, curSecs;
@@ -629,9 +714,9 @@ WTSTransSlice* WtDataReader::readTransSlice(const char* stdCode, uint32_t count,
 	bool isToday = (endTDate == curTDate);
 
 	std::string curCode = cInfo._code;
-	if (cInfo.isHot() && cInfo.isFuture())
+	if (cInfo.isHot() && commInfo->isFuture())
 		curCode = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, endTDate);
-	else if (cInfo.isSecond() && cInfo.isFuture())
+	else if (cInfo.isSecond() && commInfo->isFuture())
 		curCode = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, endTDate);
 
 	//比较时间的对象
@@ -685,7 +770,7 @@ WTSTransSlice* WtDataReader::readTransSlice(const char* stdCode, uint32_t count,
 			StdFile::read_file_content(filename.c_str(), hisBlkPair._buffer);
 			if (hisBlkPair._buffer.size() < sizeof(HisTransBlockV2))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史逐笔成交数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史逐笔成交数据文件{}大小校验失败", filename.c_str());
 				hisBlkPair._buffer.clear();
 				return NULL;
 			}
@@ -694,7 +779,7 @@ WTSTransSlice* WtDataReader::readTransSlice(const char* stdCode, uint32_t count,
 
 			if (hisBlkPair._buffer.size() != (sizeof(HisTransBlockV2) + tBlockV2->_size))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史逐笔成交数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史逐笔成交数据文件{}大小校验失败", filename.c_str());
 				return NULL;
 			}
 
@@ -704,7 +789,7 @@ WTSTransSlice* WtDataReader::readTransSlice(const char* stdCode, uint32_t count,
 			//将原来的buffer只保留一个头部,并将所有tick数据追加到尾部
 			hisBlkPair._buffer.resize(sizeof(HisTransBlock));
 			hisBlkPair._buffer.append(buf);
-			tBlockV2->_version = BLOCK_VERSION_RAW;
+			tBlockV2->_version = BLOCK_VERSION_RAW_V2;
 
 			hisBlkPair._block = (HisTransBlock*)hisBlkPair._buffer.c_str();
 		}
@@ -763,7 +848,8 @@ bool WtDataReader::cacheFinalBarsFromLoader(const std::string& key, const char* 
 	default: pname = ""; break;
 	}
 
-	if(_sink) _sink->reader_log(LL_INFO, "Reading final bars of %s via extended loader...", stdCode);
+	pipe_reader_log(_sink,LL_INFO, "Reading final bars of {} via extended loader...", stdCode);
+
 	bool ret = _loader->loadFinalHisBars(&barList, stdCode, period, [](void* obj, WTSBarStruct* firstBar, uint32_t count) {
 		BarsList* bars = (BarsList*)obj;
 		bars->_factor = 1.0;
@@ -772,7 +858,7 @@ bool WtDataReader::cacheFinalBarsFromLoader(const std::string& key, const char* 
 	});
 
 	if(ret)
-		if (_sink) _sink->reader_log(LL_INFO, "%s items of back {} data of {} loaded via extended loader", barList._bars.size(), pname.c_str(), stdCode);
+		pipe_reader_log(_sink,LL_INFO, "{} items of back {} data of {} loaded via extended loader", barList._bars.size(), pname.c_str(), stdCode);
 
 	return ret;
 }
@@ -805,11 +891,11 @@ bool WtDataReader::cacheIntegratedFutBars(const std::string& key, const char* st
 
 	uint32_t realCnt = 0;
 
-	const char* hot_flag = cInfo.isHot() ? "HOT" : "2ND";
+	const char* hot_flag = cInfo.isHot() ? FILE_SUF_HOT : FILE_SUF_2ND;
 
 	//先按照HOT代码进行读取, 如rb.HOT
 	std::vector<WTSBarStruct>* hotAy = NULL;
-	uint32_t lastHotTime = 0;
+	uint64_t lastHotTime = 0;
 	do
 	{
 		/*
@@ -818,7 +904,7 @@ bool WtDataReader::cacheIntegratedFutBars(const std::string& key, const char* st
 		 *	但是上层会调用一次loadFinalHisBars，这里再调用loadRawHisBars就冗余了，所以直接跳过
 		 */
 		std::stringstream ss;
-		ss << _base_dir << "his/" << pname << "/" << cInfo._exchg << "/" << cInfo._exchg << "." << cInfo._product << "_" << hot_flag << ".dsb";
+		ss << _base_dir << "his/" << pname << "/" << cInfo._exchg << "/" << cInfo._exchg << "." << cInfo._product << hot_flag << ".dsb";
 		std::string filename = ss.str();
 		if (!StdFile::exists(filename.c_str()))
 			break;
@@ -827,46 +913,26 @@ bool WtDataReader::cacheIntegratedFutBars(const std::string& key, const char* st
 		StdFile::read_file_content(filename.c_str(), content);
 		if (content.size() < sizeof(HisKlineBlock))
 		{
-			if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
+			pipe_reader_log(_sink,LL_ERROR, "历史K线数据文件{}大小校验失败", filename);
 			break;
 		}
-
-		HisKlineBlock* kBlock = (HisKlineBlock*)content.c_str();
-		std::string buffer;
-		if (kBlock->_version == BLOCK_VERSION_CMP)
-		{
-			if (content.size() < sizeof(HisKlineBlockV2))
-			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
-				break;
-			}
-
-			HisKlineBlockV2* kBlockV2 = (HisKlineBlockV2*)content.c_str();
-			if (kBlockV2->_size == 0)
-				break;
-
-			buffer = WTSCmpHelper::uncompress_data(kBlockV2->_data, (uint32_t)kBlockV2->_size);
-		}
-		else
-		{
-			content.erase(0, sizeof(HisKlineBlock));
-			buffer.swap(content);
-		}
-
-		uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
-		if (barcnt <= 0)
+		proc_block_data(content, true, false);
+		
+		if(content.empty())
 			break;
+
+		uint32_t barcnt = content.size() / sizeof(WTSBarStruct);
 
 		hotAy = new std::vector<WTSBarStruct>();
 		hotAy->resize(barcnt);
-		memcpy(hotAy->data(), buffer.data(), buffer.size());
+		memcpy(hotAy->data(), content.data(), content.size());
 
 		if (period != KP_DAY)
 			lastHotTime = hotAy->at(barcnt - 1).time;
 		else
 			lastHotTime = hotAy->at(barcnt - 1).date;
 
-		if (_sink) _sink->reader_log(LL_INFO, "%u items of back %s data of wrapped contract %s directly loaded", barcnt, pname.c_str(), stdCode);
+		pipe_reader_log(_sink,LL_INFO, "{} items of back {} data of wrapped contract {} directly loaded", barcnt, pname.c_str(), stdCode);
 	} while (false);
 
 	HotSections secs;
@@ -920,7 +986,7 @@ bool WtDataReader::cacheIntegratedFutBars(const std::string& key, const char* st
 			if (sBar.date < lastHotTime)	//如果边界时间小于主力的最后一根Bar的时间, 说明已经有交叉了, 则不需要再处理了
 			{
 				bAllCovered = true;
-				sBar.date = lastHotTime + 1;
+				sBar.date = (uint32_t)lastHotTime + 1;
 			}
 
 			eBar.date = rightDt;
@@ -958,37 +1024,17 @@ bool WtDataReader::cacheIntegratedFutBars(const std::string& key, const char* st
 			StdFile::read_file_content(filename.c_str(), content);
 			if (content.size() < sizeof(HisKlineBlock))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink, LL_ERROR, "Sizechecking of his dta file {} failed", filename.c_str());
 				return false;
 			}
-
-			HisKlineBlock* kBlock = (HisKlineBlock*)content.c_str();
-			WTSBarStruct* firstBar = NULL;
-			uint32_t barcnt = 0;
-			if (kBlock->_version == BLOCK_VERSION_CMP)
-			{
-				if (content.size() < sizeof(HisKlineBlockV2))
-				{
-					if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
-					break;
-				}
-
-				HisKlineBlockV2* kBlockV2 = (HisKlineBlockV2*)content.c_str();
-				if (kBlockV2->_size == 0)
-					break;
-
-				buffer = WTSCmpHelper::uncompress_data(kBlockV2->_data, (uint32_t)kBlockV2->_size);
-			}
-			else
-			{
-				content.erase(0, sizeof(HisKlineBlock));
-				buffer.swap(content);
-			}
+			proc_block_data(content, true, false);	
+			buffer.swap(content);
 		}
+		
+		if(buffer.empty())
+			break;
 
 		uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
-		if (barcnt <= 0)
-			break;
 
 		WTSBarStruct* firstBar = (WTSBarStruct*)buffer.data();
 
@@ -1063,7 +1109,7 @@ bool WtDataReader::cacheIntegratedFutBars(const std::string& key, const char* st
 		barsSections.clear();
 	}
 
-	if (_sink) _sink->reader_log(LL_INFO, "%u items of back %s data of %s cached", realCnt, pname.c_str(), stdCode);
+	pipe_reader_log(_sink,LL_INFO, "{} items of back {} data of {} cached", realCnt, pname.c_str(), stdCode);
 
 	return true;
 }
@@ -1096,7 +1142,7 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 	uint32_t realCnt = 0;
 
 	std::vector<WTSBarStruct>* ayAdjusted = NULL;
-	uint32_t lastQTime = 0;
+	uint64_t lastQTime = 0;
 
 	do
 	{
@@ -1105,7 +1151,7 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 		 *	本来这里是要先调用_loader->loadRawHisBars从外部加载器读取复权数据的
 		 *	但是上层会调用一次loadFinalHisBars，这里再调用loadRawHisBars就冗余了，所以直接跳过
 		 */
-		char flag = cInfo._exright == 1 ? 'Q' : 'H';
+		char flag = cInfo._exright == 1 ? SUFFIX_QFQ : SUFFIX_HFQ;
 		std::stringstream ss;
 		ss << _base_dir << "his/" << pname << "/" << cInfo._exchg << "/" << cInfo._code << flag << ".dsb";
 		std::string filename = ss.str();
@@ -1116,47 +1162,24 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 		StdFile::read_file_content(filename.c_str(), content);
 		if (content.size() < sizeof(HisKlineBlock))
 		{
-			if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
+			pipe_reader_log(_sink,LL_ERROR, "历史K线数据文件{}大小校验失败", filename.c_str());
 			break;
 		}
 
-		HisKlineBlock* kBlock = (HisKlineBlock*)content.c_str();
-		std::string buffer;
-		if (kBlock->_version == BLOCK_VERSION_CMP)
-		{
-			if (content.size() < sizeof(HisKlineBlockV2))
-			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
-				break;
-			}
+		proc_block_data(content, true, false);
 
-			HisKlineBlockV2* kBlockV2 = (HisKlineBlockV2*)content.c_str();
-			if (kBlockV2->_size == 0)
-				break;
-
-			buffer = WTSCmpHelper::uncompress_data(kBlockV2->_data, (uint32_t)kBlockV2->_size);
-		}
-		else
-		{
-			content.erase(0, sizeof(HisKlineBlock));
-			buffer.swap(content);
-		}
-
-		uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
-		if (barcnt <= 0)
-			break;
+		uint32_t barcnt = content.size() / sizeof(WTSBarStruct);
 
 		ayAdjusted = new std::vector<WTSBarStruct>();
 		ayAdjusted->resize(barcnt);
-		memcpy(ayAdjusted->data(), buffer.data(), buffer.size());
-
+		memcpy(ayAdjusted->data(), content.data(), content.size());
 
 		if (period != KP_DAY)
 			lastQTime = ayAdjusted->at(barcnt - 1).time;
 		else
 			lastQTime = ayAdjusted->at(barcnt - 1).date;
 
-		if (_sink) _sink->reader_log(LL_INFO, "%u items of adjusted back %s data of stock %s directly loaded", barcnt, pname.c_str(), stdCode);
+		pipe_reader_log(_sink,LL_INFO, "{} items of adjusted back {} data of stock {} directly loaded", barcnt, pname.c_str(), stdCode);
 	} while (false);
 
 
@@ -1175,7 +1198,7 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 		}
 		else
 		{
-			sBar.date = lastQTime + 1;
+			sBar.date = (uint32_t)lastQTime + 1;
 		}
 
 		/*
@@ -1195,6 +1218,7 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 			});
 		}
 
+		bool bOldVer = false;
 		if (!bLoaded)
 		{
 			std::stringstream ss;
@@ -1207,37 +1231,18 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 			StdFile::read_file_content(filename.c_str(), content);
 			if (content.size() < sizeof(HisKlineBlock))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史K线数据文件{}大小校验失败", filename.c_str());
 				return false;
 			}
 
-			HisKlineBlock* kBlock = (HisKlineBlock*)content.c_str();
-			WTSBarStruct* firstBar = NULL;
-			uint32_t barcnt = 0;
-			if (kBlock->_version == BLOCK_VERSION_CMP)
-			{
-				if (content.size() < sizeof(HisKlineBlockV2))
-				{
-					if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
-					break;
-				}
-
-				HisKlineBlockV2* kBlockV2 = (HisKlineBlockV2*)content.c_str();
-				if (kBlockV2->_size == 0)
-					break;
-
-				buffer = WTSCmpHelper::uncompress_data(kBlockV2->_data, (uint32_t)kBlockV2->_size);
-			}
-			else
-			{
-				content.erase(0, sizeof(HisKlineBlock));
-				buffer.swap(content);
-			}
+			proc_block_data(content, true, false);
+			buffer.swap(content);
 		}
 
-		uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
-		if (barcnt <= 0)
+		if(buffer.empty())
 			break;
+
+		uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
 
 		WTSBarStruct* firstBar = (WTSBarStruct*)buffer.data();
 
@@ -1342,7 +1347,7 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 		barsSections.clear();
 	}
 
-	if (_sink) _sink->reader_log(LL_INFO, "%u items of back %s data of %s cached", realCnt, pname.c_str(), stdCode);
+	pipe_reader_log(_sink,LL_INFO, "{} items of back {} data of {} cached", realCnt, pname.c_str(), stdCode);
 
 	return true;
 }
@@ -1350,6 +1355,7 @@ bool WtDataReader::cacheAdjustedStkBars(const std::string& key, const char* stdC
 bool WtDataReader::cacheHisBarsFromFile(const std::string& key, const char* stdCode, WTSKlinePeriod period)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
 	uint32_t curDate = TimeUtils::getCurDate();
@@ -1373,12 +1379,12 @@ bool WtDataReader::cacheHisBarsFromFile(const std::string& key, const char* stdC
 	std::vector<std::vector<WTSBarStruct>*> barsSections;
 
 	uint32_t realCnt = 0;
-	if (!cInfo.isFlat() && cInfo.isFuture())
+	if (!cInfo.isFlat() && commInfo->isFuture())
 	{
 		//如果是读取期货主力连续数据
 		return cacheIntegratedFutBars(key, stdCode, period);
 	}
-	else if(cInfo.isExright() && cInfo.isStock())
+	else if(cInfo.isExright() && commInfo->isStock())
 	{
 		//如果是读取股票复权数据
 		return cacheAdjustedStkBars(key, stdCode, period);
@@ -1416,44 +1422,24 @@ bool WtDataReader::cacheHisBarsFromFile(const std::string& key, const char* stdC
 			StdFile::read_file_content(filename.c_str(), content);
 			if (content.size() < sizeof(HisKlineBlock))
 			{
-				if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
+				pipe_reader_log(_sink,LL_ERROR, "历史K线数据文件{}大小校验失败", filename.c_str());
 				return false;
 			}
 
-			HisKlineBlock* kBlock = (HisKlineBlock*)content.c_str();
-			WTSBarStruct* firstBar = NULL;
-			uint32_t barcnt = 0;
-			if (kBlock->_version == BLOCK_VERSION_CMP)
-			{
-				if (content.size() < sizeof(HisKlineBlockV2))
-				{
-					if (_sink) _sink->reader_log(LL_ERROR, "历史K线数据文件%s大小校验失败", filename.c_str());
-					return false;
-				}
-
-				HisKlineBlockV2* kBlockV2 = (HisKlineBlockV2*)content.c_str();
-				if (kBlockV2->_size == 0)
-					return false;
-
-				buffer = WTSCmpHelper::uncompress_data(kBlockV2->_data, (uint32_t)kBlockV2->_size);
-			}
-			else
-			{
-				content.erase(0, sizeof(HisKlineBlock));
-				buffer.swap(content);
-			}
+			proc_block_data(content, true, false);
+			buffer.swap(content);
 		}
 	}
 
-	uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
-	if (barcnt <= 0)
+	if (buffer.empty())
 		return false;
+
+	uint32_t barcnt = buffer.size() / sizeof(WTSBarStruct);
 
 	WTSBarStruct* firstBar = (WTSBarStruct*)buffer.data();
 
 	if (barcnt > 0)
 	{
-
 		uint32_t sIdx = 0;
 		uint32_t idx = barcnt - 1;
 		uint32_t curCnt = (idx - sIdx + 1);
@@ -1481,13 +1467,14 @@ bool WtDataReader::cacheHisBarsFromFile(const std::string& key, const char* stdC
 		barsSections.clear();
 	}
 
-	if (_sink) _sink->reader_log(LL_INFO, "%u items of back %s data of %s cached", realCnt, pname.c_str(), stdCode);
+	pipe_reader_log(_sink,LL_INFO, "{} items of back {} data of {} cached", realCnt, pname.c_str(), stdCode);
 	return true;
 }
 
 WTSKlineSlice* WtDataReader::readKlineSlice(const char* stdCode, WTSKlinePeriod period, uint32_t count, uint64_t etime /* = 0 */)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
 	std::string key = StrUtil::printf("%s#%u", stdCode, period);
@@ -1544,15 +1531,15 @@ WTSKlineSlice* WtDataReader::readKlineSlice(const char* stdCode, WTSKlinePeriod 
 	//是否包含当天的
 	bool bHasToday = (endTDate == curTDate);
 
-	if (cInfo.isHot() && cInfo.isFuture())
+	if (cInfo.isHot() && commInfo->isFuture())
 	{
 		_bars_cache[key]._raw_code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, curTDate);
-		if (_sink) _sink->reader_log(LL_INFO, "Hot contract of %u confirmed: %s -> %s", curTDate, stdCode, _bars_cache[key]._raw_code.c_str());
+		pipe_reader_log(_sink,LL_INFO, "Hot contract on {}  confirmed: {} -> {}", curTDate, stdCode, _bars_cache[key]._raw_code.c_str());
 	}
-	else if (cInfo.isSecond() && cInfo.isFuture())
+	else if (cInfo.isSecond() && commInfo->isFuture())
 	{
 		_bars_cache[key]._raw_code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, curTDate);
-		if (_sink) _sink->reader_log(LL_INFO, "Second contract of %u confirmed: %s -> %s", curTDate, stdCode, _bars_cache[key]._raw_code.c_str());
+		pipe_reader_log(_sink,LL_INFO, "Second contract on {} confirmed: {} -> {}", curTDate, stdCode, _bars_cache[key]._raw_code.c_str());
 	}
 	else
 	{
@@ -1572,13 +1559,20 @@ WTSKlineSlice* WtDataReader::readKlineSlice(const char* stdCode, WTSKlinePeriod 
 		if (kPair != NULL)
 		{
 			//读取当日的数据
-			WTSBarStruct* pBar = std::lower_bound(kPair->_block->_bars, kPair->_block->_bars + (kPair->_block->_size - 1), bar, [period](const WTSBarStruct& a, const WTSBarStruct& b){
+			WTSBarStruct* pBar = NULL;
+			pBar = std::lower_bound(kPair->_block->_bars, kPair->_block->_bars + (kPair->_block->_size - 1), bar, [period](const WTSBarStruct& a, const WTSBarStruct& b){
 				if (period == KP_DAY)
 					return a.date < b.date;
 				else
 					return a.time < b.time;
 			});
-			uint32_t idx = pBar - kPair->_block->_bars;
+
+			uint32_t idx = 0;
+			if (pBar != NULL)
+				idx = pBar - kPair->_block->_bars;
+			else
+				idx = kPair->_block->_size;
+
 			if ((period == KP_DAY && pBar->date > bar.date) || (period != KP_DAY && pBar->time > bar.time))
 			{
 				pBar--;
@@ -1594,9 +1588,12 @@ WTSKlineSlice* WtDataReader::readKlineSlice(const char* stdCode, WTSKlinePeriod 
 			uint32_t curCnt = (idx - sIdx + 1);
 			left -= (idx - sIdx + 1);
 
-			if(cInfo._exright == 2 && cInfo.isStock())
+			if(cInfo._exright == 2 && commInfo->isStock())
 			{
 				//后复权数据要把最新的数据进行复权处理，所以要作为历史数据追加到尾部
+				//虽然后复权数据要进行复权处理，但是实时数据的位置标记也要更新到最新，不然OnMinuteEnd会从开盘开始回放的
+				_bars_cache[key]._rt_cursor = idx;
+
 				BarsList& barsList = _bars_cache[key];
 				double factor = barsList._factor;
 				uint32_t oldSize = barsList._bars.size();
@@ -1618,7 +1615,6 @@ WTSKlineSlice* WtDataReader::readKlineSlice(const char* stdCode, WTSKlinePeriod 
 				rtHead = &kPair->_block->_bars[sIdx];
 				rtCnt = curCnt;
 			}
-			
 		}
 	}
 
@@ -1631,9 +1627,13 @@ WTSKlineSlice* WtDataReader::readKlineSlice(const char* stdCode, WTSKlinePeriod 
 		hisHead = &barList._bars[barList._bars.size() - hisCnt];//indexBarFromCache(key, etime, hisCnt, period == KP_DAY);
 	}
 
+	pipe_reader_log(_sink, LL_DEBUG, "His {} bars of {} loaded, {} from history, {} from realtime", PERIOD_NAME[period], stdCode, hisCnt, rtCnt);
+
 	if (hisCnt + rtCnt > 0)
 	{
-		WTSKlineSlice* slice = WTSKlineSlice::create(stdCode, period, 1, hisHead, hisCnt, rtHead, rtCnt);
+		WTSKlineSlice* slice = WTSKlineSlice::create(stdCode, period, 1, hisHead, hisCnt);
+		if (rtCnt > 0)
+			slice->appendBlock(rtHead, rtCnt);
 		return slice;
 	}
 
@@ -1843,6 +1843,8 @@ WtDataReader::RTKlineBlockPair* WtDataReader::getRTKilneBlock(const char* exchg,
 	else if (block._last_cap != block._block->_capacity)
 	{
 		//说明文件大小已变, 需要重新映射
+		pipe_reader_log(_sink, LL_DEBUG, "RT {} block of {}.{} expanded to {}, remapping...", subdir.c_str(), exchg, code, block._block->_capacity);
+
 		block._file.reset(new BoostMappingFile());
 		block._last_cap = 0;
 		block._block = NULL;
@@ -1853,6 +1855,8 @@ WtDataReader::RTKlineBlockPair* WtDataReader::getRTKilneBlock(const char* exchg,
 		block._block = (RTKlineBlock*)block._file->addr();
 		block._last_cap = block._block->_capacity;
 	}
+
+	pipe_reader_log(_sink, LL_DEBUG, "RT {} block of {}.{} loaded", subdir.c_str(), exchg, code);
 
 	return &block;
 }
@@ -1959,12 +1963,15 @@ void WtDataReader::onMinuteEnd(uint32_t uDate, uint32_t uTime, uint32_t endTDate
 double WtDataReader::getAdjFactorByDate(const char* stdCode, uint32_t date /* = 0 */)
 {
 	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-	if (!cInfo.isStock())
+	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
+	if (!commInfo->isStock())
 		return 1.0;
 
 	AdjFactor factor = { date, 1.0 };
 
-	std::string key = cInfo.pureStdCode();
+	std::string key = stdCode;
+	if (cInfo.isExright())
+		key = key.substr(0, key.size() - 1);
 	const AdjFactorList& factList = _adj_factors[key];
 	if (factList.empty())
 		return 1.0;
@@ -2001,7 +2008,7 @@ const WtDataReader::AdjFactorList& WtDataReader::getAdjFactors(const char* code,
 		//如果没有复权因子，就从extloader按需读一次
 		if (_loader)
 		{
-			if(_sink) _sink->reader_log(LL_INFO, "No adjusting factors of %s cached, searching via extented loader...", key);
+			if(_sink) pipe_reader_log(_sink,LL_INFO, "No adjusting factors of {} cached, searching via extented loader...", key);
 			_loader->loadAdjFactors(this, key, [](void* obj, const char* stdCode, uint32_t* dates, double* factors, uint32_t count) {
 				WtDataReader* self = (WtDataReader*)obj;
 				AdjFactorList& fctrLst = self->_adj_factors[stdCode];
@@ -2025,7 +2032,7 @@ const WtDataReader::AdjFactorList& WtDataReader::getAdjFactors(const char* code,
 					return left._date < right._date;
 				});
 
-				if (self->_sink) self->_sink->reader_log(LL_INFO, "%u items of adjusting factors of %s loaded via extended loader", count, stdCode);
+				pipe_reader_log(self->_sink, LL_INFO, "{} items of adjusting factors of {} loaded via extended loader", count, stdCode);
 			});
 		}
 	}

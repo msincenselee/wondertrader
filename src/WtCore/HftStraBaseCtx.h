@@ -12,10 +12,11 @@
 #include "../Includes/FasterDefs.h"
 #include "../Includes/IHftStraCtx.h"
 #include "../Share/BoostFile.hpp"
+#include "../Share/fmtlib.h"
 
 #include "ITrdNotifySink.h"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 
 class WtHftEngine;
 class TraderAdapter;
@@ -53,14 +54,67 @@ public:
 
 	virtual OrderIDs stra_cancel(const char* stdCode, bool isBuy, double qty) override;
 
-	virtual OrderIDs stra_buy(const char* stdCode, double price, double qty, const char* userTag) override;
+	/*
+	 *	下单接口: 买入
+	 *
+	 *	@stdCode	合约代码
+	 *	@price		下单价格，0则是市价单
+	 *	@qty		下单数量
+	 *	@flag		下单标志: 0-normal，1-fak，2-fok，默认0
+	 */
+	virtual OrderIDs stra_buy(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
 
-	virtual OrderIDs stra_sell(const char* stdCode, double price, double qty, const char* userTag) override;
+	/*
+	 *	下单接口: 卖出
+	 *
+	 *	@stdCode	合约代码
+	 *	@price		下单价格，0则是市价单
+	 *	@qty		下单数量
+	 *	@flag		下单标志: 0-normal，1-fak，2-fok，默认0
+	 */
+	virtual OrderIDs stra_sell(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
 
-	virtual uint32_t	stra_enter_long(const char* stdCode, double price, double qty, const char* userTag) override;
-	virtual uint32_t	stra_enter_short(const char* stdCode, double price, double qty, const char* userTag) override;
-	virtual uint32_t	stra_exit_long(const char* stdCode, double price, double qty, const char* userTag, bool isToday = false) override;
-	virtual uint32_t	stra_exit_short(const char* stdCode, double price, double qty, const char* userTag, bool isToday = false) override;
+	/*
+	 *	下单接口: 开多
+	 *
+	 *	@stdCode	合约代码
+	 *	@price		下单价格，0则是市价单
+	 *	@qty		下单数量
+	 *	@flag		下单标志: 0-normal，1-fak，2-fok
+	 */
+	virtual uint32_t	stra_enter_long(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
+
+	/*
+	 *	下单接口: 开空
+	 *
+	 *	@stdCode	合约代码
+	 *	@price		下单价格，0则是市价单
+	 *	@qty		下单数量
+	 *	@flag		下单标志: 0-normal，1-fak，2-fok
+	 */
+	virtual uint32_t	stra_enter_short(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
+
+	/*
+	 *	下单接口: 平多
+	 *
+	 *	@stdCode	合约代码
+	 *	@price		下单价格，0则是市价单
+	 *	@qty		下单数量
+	 *	@isToday	是否今仓，默认false
+	 *	@flag		下单标志: 0-normal，1-fak，2-fok，默认0
+	 */
+	virtual uint32_t	stra_exit_long(const char* stdCode, double price, double qty, const char* userTag, bool isToday = false, int flag = 0) override;
+
+	/*
+	 *	下单接口: 平空
+	 *
+	 *	@stdCode	合约代码
+	 *	@price		下单价格，0则是市价单
+	 *	@qty		下单数量
+	 *	@isToday	是否今仓，默认false
+	 *	@flag		下单标志: 0-normal，1-fak，2-fok，默认0
+	 */
+	virtual uint32_t	stra_exit_short(const char* stdCode, double price, double qty, const char* userTag, bool isToday = false, int flag = 0) override;
 
 	virtual WTSCommodityInfo* stra_get_comminfo(const char* stdCode) override;
 
@@ -76,9 +130,9 @@ public:
 
 	virtual WTSTickData* stra_get_last_tick(const char* stdCode) override;
 
-	virtual void stra_log_info(const char* fmt, ...) override;
-	virtual void stra_log_debug(const char* fmt, ...) override;
-	virtual void stra_log_error(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* message) override;
+	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_error(const char* message) override;
 
 	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false) override;
 	virtual double stra_get_position_profit(const char* stdCode) override;
@@ -110,6 +164,28 @@ public:
 	virtual void on_entrust(uint32_t localid, const char* stdCode, bool bSuccess, const char* message) override;
 
 	virtual void on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail, uint32_t tradingday) override;
+
+private:
+	template<typename... Args>
+	void log_debug(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_debug(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_info(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_info(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_error(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_error(s.c_str());
+	}
 
 protected:
 	const char* get_inner_code(const char* stdCode);
@@ -154,6 +230,9 @@ protected:
 	bool			_ud_modified;
 
 	bool			_data_agent;	//数据托管
+
+	//tick订阅列表
+	faster_hashset<std::string> _tick_subs;
 
 private:
 	typedef struct _DetailInfo
@@ -213,4 +292,4 @@ private:
 	PriceMap		_price_map;
 };
 
-NS_OTP_END
+NS_WTP_END

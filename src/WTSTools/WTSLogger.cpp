@@ -17,10 +17,12 @@
 #endif
 
 #include "WTSLogger.h"
+#include "../WTSUtils/WTSCfgLoader.h"
 #include "../Includes/ILogHandler.h"
-#include "../Share/JsonToVariant.hpp"
+#include "../Includes/WTSVariant.hpp"
 #include "../Share/StdUtils.hpp"
 #include "../Share/StrUtil.hpp"
+#include "../Share/TimeUtils.hpp"
 
 #include <boost/filesystem.hpp>
 
@@ -84,20 +86,7 @@ inline void checkDirs(const char* filename)
 		boost::filesystem::create_directories(s.substr(0, pos).c_str());
 }
 
-inline void format_impl(char* buf, const char* fmt, va_list& args)
-{
-	int len = vsprintf(buf, fmt, args);
-	if(len < 0)
-	{
-		strcpy(buf, "string formatting went wrong\0");
-	}
-	else
-	{
-		buf[len] = '\0';
-	}
-}
-
-inline void print_timetag(bool bWithSpace = true)
+static inline void print_timetag(bool bWithSpace = true)
 {
 	timeb now;
 	ftime(&now);
@@ -106,6 +95,13 @@ inline void print_timetag(bool bWithSpace = true)
 	printf("[%d.%02d.%02d %02d:%02d:%02d]", tNow->tm_year + 1900, tNow->tm_mon + 1, tNow->tm_mday, tNow->tm_hour, tNow->tm_min, tNow->tm_sec);
 	if (bWithSpace)
 		printf(" ");
+}
+
+void WTSLogger::print_message(const char* buffer)
+{
+	print_timetag(true);
+	printf(buffer);
+	printf("\r\n");
 }
 
 void WTSLogger::initLogger(const char* catName, WTSVariant* cfgLogger)
@@ -153,7 +149,7 @@ void WTSLogger::initLogger(const char* catName, WTSVariant* cfgLogger)
 
 	if (!bAsync)
 	{
-		auto logger = std::make_shared<spdlog::logger>(catName, sinks);
+		auto logger = std::make_shared<spdlog::logger>(catName, sinks.begin(), sinks.end());
 		logger->set_level(str_to_level(cfgLogger->getCString("level")));
 		spdlog::register_logger(logger);
 	}
@@ -179,20 +175,9 @@ void WTSLogger::init(const char* propFile /* = "logcfg.json" */, bool isFile /* 
 	if (isFile && !StdFile::exists(propFile))
 		return;
 
-	std::string content;
-	if (isFile)
-		StdFile::read_file_content(propFile, content);
-	else
-		content = propFile;
-
-	rj::Document root;
-	if (root.Parse(content.c_str()).HasParseError())
-	{
+	WTSVariant* cfg = isFile ? WTSCfgLoader::load_from_file(propFile, true) : WTSCfgLoader::load_from_content(propFile, false, true);
+	if (cfg == NULL)
 		return;
-	}
-
-	WTSVariant* cfg = WTSVariant::createObject();
-	jsonToVariant(root, cfg);
 
 	auto keys = cfg->memberNames();
 	for (std::string& key : keys)
@@ -237,150 +222,6 @@ void WTSLogger::stop()
 	if (m_mapPatterns)
 		m_mapPatterns->release();
 	spdlog::shutdown();
-}
-
-void WTSLogger::debug(const char* format, ...)
-{
-	if(m_logLevel > LL_DEBUG || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if(!m_bInited)
-	{
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	debug_imp(m_rootLogger, m_buffer);
-}
-
-void WTSLogger::info(const char* format, ...)
-{
-	if(m_logLevel > LL_INFO || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	info_imp(m_rootLogger, m_buffer);
-}
-
-void WTSLogger::warn(const char* format, ...)
-{
-	if(m_logLevel > LL_WARN || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	warn_imp(m_rootLogger, m_buffer);
-}
-
-void WTSLogger::error(const char* format, ...)
-{
-	if(m_logLevel > LL_ERROR || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	error_imp(m_rootLogger, m_buffer);
-}
-
-void WTSLogger::fatal(const char* format, ...)
-{
-	if(m_logLevel > LL_FATAL || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	fatal_imp(m_rootLogger, m_buffer);
-}
-
-void WTSLogger::log(WTSLogLevel ll, const char* format, ...)
-{
-	if(m_logLevel > ll || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	switch(ll)
-	{
-	case LL_DEBUG:
-		debug_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_INFO:
-		info_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_WARN:
-		warn_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_ERROR:
-		error_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_FATAL:
-		fatal_imp(m_rootLogger, m_buffer);
-		break;
-	default:
-		break;
-	}
 }
 
 void WTSLogger::debug_imp(SpdLoggerPtr logger, const char* message)
@@ -450,9 +291,7 @@ void WTSLogger::log_raw(WTSLogLevel ll, const char* message)
 
 	if (!m_bInited)
 	{
-		print_timetag(true);
-		printf(message);
-		printf("\r\n");
+		print_message(message);
 		return;
 	}
 
@@ -463,198 +302,22 @@ void WTSLogger::log_raw(WTSLogLevel ll, const char* message)
 		switch (ll)
 		{
 		case LL_DEBUG:
-			debug_imp(logger, message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_DEBUG, message);
-			break;
+			debug_imp(logger, message); break;
 		case LL_INFO:
-			info_imp(logger, message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_INFO, message);
-			break;
+			info_imp(logger, message); break;
 		case LL_WARN:
-			warn_imp(logger, message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_WARN, message);
-			break;
+			warn_imp(logger, message); break;
 		case LL_ERROR:
-			error_imp(logger, message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_ERROR, message);
-			break;
+			error_imp(logger, message); break;
 		case LL_FATAL:
-			fatal_imp(logger, message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_FATAL, message);
-			break;
+			fatal_imp(logger, message); break;
 		default:
 			break;
 		}
 	}
 }
 
-
-void WTSLogger::vlog(WTSLogLevel ll, const char* format, va_list& args)
-{
-	if (m_logLevel > ll || m_bStopped)
-		return;
-
-	format_impl(m_buffer, format, args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	switch (ll)
-	{
-	case LL_DEBUG:
-		debug_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_INFO:
-		info_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_WARN:
-		warn_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_ERROR:
-		error_imp(m_rootLogger, m_buffer);
-		break;
-	case LL_FATAL:
-		fatal_imp(m_rootLogger, m_buffer);
-		break;
-	default:
-		break;
-	}
-}
-
-void WTSLogger::debug2(const char* catName, const char* format, ...)
-{
-	if(m_logLevel > LL_DEBUG || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);  
-	auto logger = getLogger(catName);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	debug_imp(logger, m_buffer);
-}
-
-void WTSLogger::info2(const char* catName, const char* format, ...)
-{
-	if(m_logLevel > LL_INFO || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	auto logger = getLogger(catName);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	info_imp(logger, m_buffer);
-}
-
-void WTSLogger::warn2(const char* catName, const char* format, ...)
-{
-	if(m_logLevel > LL_WARN || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	auto logger = getLogger(catName);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	warn_imp(logger, m_buffer);
-}
-
-void WTSLogger::error2(const char* catName, const char* format, ...)
-{
-	if(m_logLevel > LL_ERROR || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	auto logger = getLogger(catName);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	error_imp(logger, m_buffer);
-}
-
-void WTSLogger::fatal2(const char* catName, const char* format, ...)
-{
-	if(m_logLevel > LL_FATAL || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-	auto logger = getLogger(catName);
-	format_impl(m_buffer, format, args);
-	va_end(args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	fatal_imp(logger, m_buffer);
-}
-
-void WTSLogger::log2(const char* catName, WTSLogLevel ll, const char* format, ...)
-{
-	if(m_logLevel > ll || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);        
-
-	vlog2(catName, ll, format, args);
-
-	va_end(args);
-}
-
-void WTSLogger::log2_raw(const char* catName, WTSLogLevel ll, const char* message)
+void WTSLogger::log_raw_by_cat(const char* catName, WTSLogLevel ll, const char* message)
 {
 	if (m_logLevel > ll || m_bStopped)
 		return;
@@ -664,7 +327,7 @@ void WTSLogger::log2_raw(const char* catName, WTSLogLevel ll, const char* messag
 	if (!m_bInited)
 	{
 		print_timetag(true);
-		printf(m_buffer);
+		printf(message);
 		printf("\r\n");
 		return;
 	}
@@ -674,126 +337,24 @@ void WTSLogger::log2_raw(const char* catName, WTSLogLevel ll, const char* messag
 		switch (ll)
 		{
 		case LL_DEBUG:
-			logger->debug(message); 
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_DEBUG, message);
+			debug_imp(logger, message);
 			break;
 		case LL_INFO:
-			logger->info(message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_INFO, message);
+			info_imp(logger, message);
 			break;
 		case LL_WARN:
-			logger->warn(message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_WARN, message);
+			warn_imp(logger, message);
 			break;
 		case LL_ERROR:
-			logger->error(message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_ERROR, message);
+			error_imp(logger, message);
 			break;
 		case LL_FATAL:
-			logger->critical(message);
-			if (m_logHandler)
-				m_logHandler->handleLogAppend(LL_FATAL, message);
+			fatal_imp(logger, message);
 			break;
 		default:
 			break;
 		}
 	}	
-}
-
-void WTSLogger::vlog2(const char* catName, WTSLogLevel ll, const char* format, va_list& args)
-{
-	if (m_logLevel > ll || m_bStopped)
-		return;
-
-	auto logger = getLogger(catName);
-	format_impl(m_buffer, format, args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	switch (ll)
-	{
-	case LL_DEBUG:
-		debug_imp(logger, m_buffer);
-		break;
-	case LL_INFO:
-		info_imp(logger, m_buffer);
-		break;
-	case LL_WARN:
-		warn_imp(logger, m_buffer);
-		break;
-	case LL_ERROR:
-		error_imp(logger, m_buffer);
-		break;
-	case LL_FATAL:
-		fatal_imp(logger, m_buffer);
-		break;
-	default:
-		break;
-	}
-}
-
-void WTSLogger::log_dyn(const char* patttern, const char* catName, WTSLogLevel ll, const char* format, ...)
-{
-	if (m_logLevel > ll || m_bStopped)
-		return;
-
-	va_list args;
-	va_start(args, format);
-
-	vlog_dyn(patttern, catName, ll, format, args);
-
-	va_end(args);
-}
-
-void WTSLogger::vlog_dyn(const char* patttern, const char* catName, WTSLogLevel ll, const char* format, va_list& args)
-{
-	if (m_logLevel > ll || m_bStopped)
-		return;
-
-	auto logger = getLogger(catName, patttern);
-	if (!logger)
-		return;
-
-	format_impl(m_buffer, format, args);
-
-	if (!m_bInited)
-	{
-		print_timetag(true);
-		printf(m_buffer);
-		printf("\r\n");
-		return;
-	}
-
-	switch (ll)
-	{
-	case LL_DEBUG:
-		debug_imp(logger, m_buffer);
-		break;
-	case LL_INFO:
-		info_imp(logger, m_buffer);
-		break;
-	case LL_WARN:
-		warn_imp(logger, m_buffer);
-		break;
-	case LL_ERROR:
-		error_imp(logger, m_buffer);
-		break;
-	case LL_FATAL:
-		fatal_imp(logger, m_buffer);
-		break;
-	default:
-		break;
-	}
 }
 
 void WTSLogger::log_dyn_raw(const char* patttern, const char* catName, WTSLogLevel ll, const char* message)

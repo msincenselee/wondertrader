@@ -122,6 +122,7 @@
     <ClInclude Include="..\Includes\ExecuteDefs.h" />
     <ClInclude Include="..\Includes\FasterDefs.h" />
     <ClInclude Include="..\Includes\IBaseDataMgr.h" />
+    <ClInclude Include="..\Includes\IBtDtReader.h" />
     <ClInclude Include="..\Includes\ICtaStraCtx.h" />
     <ClInclude Include="..\Includes\IDataFactory.h" />
     <ClInclude Include="..\Includes\IDataManager.h" />
@@ -130,6 +131,7 @@
     <ClInclude Include="..\Includes\IHftStraCtx.h" />
     <ClInclude Include="..\Includes\IHotMgr.h" />
     <ClInclude Include="..\Includes\IParserApi.h" />
+    <ClInclude Include="..\Includes\IRdmDtReader.h" />
     <ClInclude Include="..\Includes\ISelStraCtx.h" />
     <ClInclude Include="..\Includes\ISessionMgr.h" />
     <ClInclude Include="..\Includes\ITraderApi.h" />
@@ -140,7 +142,6 @@
     <ClInclude Include="..\Includes\WTSHotItem.hpp" />
     <ClInclude Include="..\Includes\WTSMarcos.h" />
     <ClInclude Include="..\Includes\WTSObject.hpp" />
-    <ClInclude Include="..\Includes\WTSParams.hpp" />
     <ClInclude Include="..\Includes\WTSRiskDef.hpp" />
     <ClInclude Include="..\Includes\WTSSessionInfo.hpp" />
     <ClInclude Include="..\Includes\WTSStruct.h" />
@@ -152,12 +153,13 @@
     <ClInclude Include="BoostMappingFile.hpp" />
     <ClInclude Include="charconv.hpp" />
     <ClInclude Include="CodeHelper.hpp" />
+    <ClInclude Include="CpuHelper.hpp" />
     <ClInclude Include="decimal.h" />
     <ClInclude Include="DLLHelper.hpp" />
+    <ClInclude Include="fmtlib.h" />
     <ClInclude Include="ILogHandler.h" />
     <ClInclude Include="IniFile.hpp" />
     <ClInclude Include="IniHelper.hpp" />
-    <ClInclude Include="JsonToVariant.hpp" />
     <ClInclude Include="ModuleHelper.hpp" />
     <ClInclude Include="StdUtils.hpp" />
     <ClInclude Include="threadpool.hpp" />

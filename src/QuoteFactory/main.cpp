@@ -5,11 +5,12 @@
 #include "../WtDtCore/WtHelper.h"
 
 #include "../Includes/WTSSessionInfo.hpp"
-#include "../Share/JsonToVariant.hpp"
+#include "../Includes/WTSVariant.hpp"
 
 #include "../WTSTools/WTSHotMgr.h"
 #include "../WTSTools/WTSBaseDataMgr.h"
 #include "../WTSTools/WTSLogger.h"
+#include "../WTSUtils/WTSCfgLoader.h"
 #include "../Share/StrUtil.hpp"
 
 #include "../WTSUtils/SignalHook.hpp"
@@ -56,9 +57,10 @@ const char* getBinDir()
 }
 
 
-void initDataMgr(WTSVariant* config)
+void initDataMgr(WTSVariant* config, bool bAlldayMode = false)
 {
-	g_dataMgr.init(config, &g_baseDataMgr, &g_stateMon, &g_udpCaster);
+	//如果是全天模式，则不传递状态机给DataManager
+	g_dataMgr.init(config, &g_baseDataMgr, bAlldayMode ? NULL : &g_stateMon, &g_udpCaster);
 }
 
 void initParsers(WTSVariant* cfg)
@@ -91,19 +93,27 @@ void initialize()
 {
 	WtHelper::set_module_dir(getBinDir());
 
-	std::string json;
-	StdFile::read_file_content("QFConfig.json", json);
-	rj::Document document;
-	document.Parse(json.c_str());
+	std::string filename("QFConfig.json");
+	if (!StdFile::exists(filename.c_str()))
+		filename = "QFConfig.yaml";
+	if (!StdFile::exists(filename.c_str()))
+		filename = "dtcfg.json";
+	if (!StdFile::exists(filename.c_str()))
+		filename = "dtcfg.yaml";
 
-	WTSVariant* config = WTSVariant::createObject();
-	jsonToVariant(document, config);
+	WTSVariant* config = WTSCfgLoader::load_from_file(filename.c_str(), true);
+	if(config == NULL)
+	{
+		WTSLogger::error_f("Loading config file {} failed", filename);
+		return;
+	}
 
 	//加载市场信息
 	WTSVariant* cfgBF = config->get("basefiles");
+	bool isUTF8 = cfgBF->getBoolean("utf-8");
 	if (cfgBF->get("session"))
 	{
-		g_baseDataMgr.loadSessions(cfgBF->getCString("session"));
+		g_baseDataMgr.loadSessions(cfgBF->getCString("session"), isUTF8);
 		WTSLogger::info("Trading sessions loaded");
 	}
 
@@ -112,13 +122,13 @@ void initialize()
 	{
 		if (cfgItem->type() == WTSVariant::VT_String)
 		{
-			g_baseDataMgr.loadCommodities(cfgItem->asCString());
+			g_baseDataMgr.loadCommodities(cfgItem->asCString(), isUTF8);
 		}
 		else if (cfgItem->type() == WTSVariant::VT_Array)
 		{
 			for (uint32_t i = 0; i < cfgItem->size(); i++)
 			{
-				g_baseDataMgr.loadCommodities(cfgItem->get(i)->asCString());
+				g_baseDataMgr.loadCommodities(cfgItem->get(i)->asCString(), isUTF8);
 			}
 		}
 	}
@@ -128,13 +138,13 @@ void initialize()
 	{
 		if (cfgItem->type() == WTSVariant::VT_String)
 		{
-			g_baseDataMgr.loadContracts(cfgItem->asCString());
+			g_baseDataMgr.loadContracts(cfgItem->asCString(), isUTF8);
 		}
 		else if (cfgItem->type() == WTSVariant::VT_Array)
 		{
 			for (uint32_t i = 0; i < cfgItem->size(); i++)
 			{
-				g_baseDataMgr.loadContracts(cfgItem->get(i)->asCString());
+				g_baseDataMgr.loadContracts(cfgItem->get(i)->asCString(), isUTF8);
 			}
 		}
 	}
@@ -145,38 +155,87 @@ void initialize()
 		WTSLogger::info("Holidays loaded");
 	}
 
-	if (cfgBF->get("hot"))
-	{
-		g_hotMgr.loadHots(cfgBF->getCString("hot"));
-		WTSLogger::info("Hot rules loaded");
-	}
+	//By Wesley @ 2021.12.27
+	//datakit不需要主力映射规则
+	//if (cfgBF->get("hot"))
+	//{
+	//	g_hotMgr.loadHots(cfgBF->getCString("hot"));
+	//	WTSLogger::info("Hot rules loaded");
+	//}
 
-	if (cfgBF->get("second"))
-	{
-		g_hotMgr.loadSeconds(cfgBF->getCString("second"));
-		WTSLogger::info("Second rules loaded");
-	}
+	//if (cfgBF->get("second"))
+	//{
+	//	g_hotMgr.loadSeconds(cfgBF->getCString("second"));
+	//	WTSLogger::info("Second rules loaded");
+	//}
 
 	g_udpCaster.init(config->get("broadcaster"), &g_baseDataMgr, &g_dataMgr);
 
-	initDataMgr(config->get("writer"));
+	//By Wesley @ 2021.12.27
+	//全天候模式，不需要再使用状态机
+	bool bAlldayMode = config->getBoolean("allday");
+	if (!bAlldayMode)
+	{
+		g_stateMon.initialize(config->getCString("statemonitor"), &g_baseDataMgr, &g_dataMgr);
+	}
+	else
+	{
+		WTSLogger::info("QuoteFactory will run in allday mode");
+	}
+	initDataMgr(config->get("writer"), bAlldayMode);
 
-	g_stateMon.initialize("statemonitor.json", &g_baseDataMgr, &g_dataMgr);
-
-	initParsers(config->get("parsers"));
+	WTSVariant* cfgParser = config->get("parsers");
+	if (cfgParser)
+	{
+		if (cfgParser->type() == WTSVariant::VT_String)
+		{
+			const char* filename = cfgParser->asCString();
+			if (StdFile::exists(filename))
+			{
+				WTSLogger::info_f("Reading parser config from {}...", filename);
+				WTSVariant* var = WTSCfgLoader::load_from_file(filename, isUTF8);
+				if (var)
+				{
+					initParsers(var->get("parsers"));
+					var->release();
+				}
+				else
+				{
+					WTSLogger::error_f("Loading parser config {} failed", filename);
+				}
+			}
+			else
+			{
+				WTSLogger::error_f("Parser configuration {} not exists", filename);
+			}
+		}
+		else if (cfgParser->type() == WTSVariant::VT_Array)
+		{
+			initParsers(cfgParser);
+		}
+	}
 
 	config->release();
 
-	g_asyncIO.post([](){
+	g_asyncIO.post([bAlldayMode](){
 		g_parsers.run();
-		std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		g_stateMon.run();
+
+		//全天候模式，不启动状态机
+		if(!bAlldayMode)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			g_stateMon.run();
+		}
 	});
 }
 
 int main()
 {
-	WTSLogger::init();
+	std::string filename = "logcfgdt.json";
+	if (!StdFile::exists(filename.c_str()))
+		filename = "logcfgdt.yaml";
+
+	WTSLogger::init(filename.c_str());
 
 #ifdef _MSC_VER
 	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
@@ -192,9 +251,14 @@ int main()
 	CMiniDumper::Enable("QuoteFactory.exe", true);
 #endif
 
+#if _WIN32
+#pragma message("Signal hooks disabled in WIN32")
+#else
+#pragma message("Signal hooks enabled in UNIX")
 	install_signal_hooks([](const char* message) {
 		WTSLogger::error(message);
 	});
+#endif
 
 	initialize();
 

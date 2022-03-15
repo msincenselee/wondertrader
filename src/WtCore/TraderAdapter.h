@@ -15,7 +15,7 @@
 #include "../Share/BoostFile.hpp"
 #include "../Share/StdUtils.hpp"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSVariant;
 class ActionPolicyMgr;
 class WTSContractInfo;
@@ -98,6 +98,7 @@ public:
 
 public:
 	bool init(const char* id, WTSVariant* params, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr);
+	bool initExt(const char* id, ITraderApi* api, IBaseDataMgr* bdMgr, ActionPolicyMgr* policyMgr);
 
 	void release();
 
@@ -142,13 +143,13 @@ public:
 		return 0;
 	}
 
-	uint32_t openLong(const char* stdCode, double price, double qty);
-	uint32_t openShort(const char* stdCode, double price, double qty);
-	uint32_t closeLong(const char* stdCode, double price, double qty, bool isToday = false);
-	uint32_t closeShort(const char* stdCode, double price, double qty, bool isToday = false);
+	uint32_t openLong(const char* stdCode, double price, double qty, int flag, WTSContractInfo* cInfo = NULL);
+	uint32_t openShort(const char* stdCode, double price, double qty, int flag, WTSContractInfo* cInfo = NULL);
+	uint32_t closeLong(const char* stdCode, double price, double qty, bool isToday, int flag, WTSContractInfo* cInfo = NULL);
+	uint32_t closeShort(const char* stdCode, double price, double qty, bool isToday, int flag, WTSContractInfo* cInfo = NULL);
 	
-	OrderIDs buy(const char* stdCode, double price, double qty, bool bForceClose = false);
-	OrderIDs sell(const char* stdCode, double price, double qty, bool bForceClose = false);
+	OrderIDs buy(const char* stdCode, double price, double qty, int flag, bool bForceClose, WTSContractInfo* cInfo = NULL);
+	OrderIDs sell(const char* stdCode, double price, double qty, int flag, bool bForceClose, WTSContractInfo* cInfo = NULL);
 	bool	cancel(uint32_t localid);
 	OrderIDs cancel(const char* stdCode, bool isBuy, double qty = 0);
 
@@ -156,6 +157,14 @@ public:
 
 	bool	checkCancelLimits(const char* stdCode);
 	bool	checkOrderLimits(const char* stdCode);
+
+	bool	checkSelfMatch(const char* stdCode, WTSTradeInfo* tInfo);
+
+	inline	bool isSelfMatched(const char* stdCode)
+	{
+		auto it = _self_matches.find(stdCode);
+		return it != _self_matches.end();
+	}
 
 public:
 	//////////////////////////////////////////////////////////////////////////
@@ -184,7 +193,7 @@ public:
 
 	virtual IBaseDataMgr* getBaseDataMgr() override;
 
-	virtual void handleTraderLog(WTSLogLevel ll, const char* format, ...) override;
+	virtual void handleTraderLog(WTSLogLevel ll, const char* message) override;
 
 private:
 	WTSVariant*			_cfg;
@@ -209,6 +218,9 @@ private:
 	StdUniqueMutex _mtx_orders;
 	OrderMap*		_orders;
 	faster_hashset<std::string> _orderids;	//主要用于标记有没有处理过该订单
+
+	faster_hashmap<std::string, std::string>	_trade_refs;	//用于记录成交单和订单的匹配
+	faster_hashset<std::string>					_self_matches;	//自成交的合约
 
 	faster_hashmap<std::string, double> _undone_qty;	//未完成数量
 
@@ -257,4 +269,4 @@ private:
 	TraderAdapterMap	_adapters;
 };
 
-NS_OTP_END
+NS_WTP_END

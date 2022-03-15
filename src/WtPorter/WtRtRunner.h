@@ -26,18 +26,18 @@
 #include "../WtCore/WtDistExecuter.h"
 #include "../WtCore/TraderAdapter.h"
 #include "../WtCore/ParserAdapter.h"
-#include "../WtCore/WtDataManager.h"
+#include "../WtCore/WtDtMgr.h"
 #include "../WtCore/ActionPolicyMgr.h"
 
 #include "../WTSTools/WTSHotMgr.h"
 #include "../WTSTools/WTSBaseDataMgr.h"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSVariant;
 class WtDataStorage;
-NS_OTP_END
+NS_WTP_END
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 typedef enum tagEngineType
 {
@@ -83,7 +83,7 @@ public:
 	void registerSelCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt);
 	void registerHftCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraBarCallback cbBar,
 		FuncHftChannelCallback cbChnl, FuncHftOrdCallback cbOrd, FuncHftTrdCallback cbTrd, FuncHftEntrustCallback cbEntrust,
-		FuncStraOrdDtlCallback cbOrdDtl, FuncStraOrdQueCallback cbOrdQue, FuncStraTransCallback cbTrans, FuncSessionEvtCallback cbSessEvt);
+		FuncStraOrdDtlCallback cbOrdDtl, FuncStraOrdQueCallback cbOrdQue, FuncStraTransCallback cbTrans, FuncSessionEvtCallback cbSessEvt, FuncHftPosCallback cbPosition);
 
 	void registerEvtCallback(FuncEventCallback cbEvt);
 
@@ -125,7 +125,7 @@ public:
 	void parser_subscribe(const char* id, const char* code);
 	void parser_unsubscribe(const char* id, const char* code);
 
-	void on_parser_quote(const char* id, WTSTickStruct* curTick, bool bNeedSlice = true);
+	void on_ext_parser_quote(const char* id, WTSTickStruct* curTick, uint32_t uProcFlag);
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -167,6 +167,7 @@ public:
 	void hft_on_order(uint32_t cHandle, WtUInt32 localid, const char* stdCode, bool isBuy, double totalQty, double leftQty, double price, bool isCanceled, const char* userTag);
 	void hft_on_trade(uint32_t cHandle, WtUInt32 localid, const char* stdCode, bool isBuy, double vol, double price, const char* userTag);
 	void hft_on_entrust(uint32_t cHandle, WtUInt32 localid, const char* stdCode, bool bSuccess, const char* message, const char* userTag);
+	void hft_on_position(uint32_t cHandle, const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail);
 
 	void hft_on_order_queue(uint32_t id, const char* stdCode, WTSOrdQueData* newOrdQue);
 	void hft_on_order_detail(uint32_t id, const char* stdCode, WTSOrdDtlData* newOrdDtl);
@@ -211,6 +212,7 @@ private:
 	FuncHftOrdCallback		_cb_hft_ord;
 	FuncHftTrdCallback		_cb_hft_trd;
 	FuncHftEntrustCallback	_cb_hft_entrust;
+	FuncHftPosCallback		_cb_hft_position;
 
 	FuncStraOrdQueCallback	_cb_hft_ordque;
 	FuncStraOrdDtlCallback	_cb_hft_orddtl;
@@ -236,7 +238,7 @@ private:
 
 	WtDataStorage*		_data_store;
 
-	WtDataManager		_data_mgr;
+	WtDtMgr				_data_mgr;
 
 	WTSBaseDataMgr		_bd_mgr;
 	WTSHotMgr			_hot_mgr;

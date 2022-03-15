@@ -15,12 +15,12 @@
 #include "../Includes/ISelStraCtx.h"
 #include "../Includes/SelStrategyDefs.h"
 #include "../Includes/WTSDataDef.hpp"
-
+#include "../Share/fmtlib.h"
 #include "../Share/DLLHelper.hpp"
 
 class SelStrategy;
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 class HisDataReplayer;
 
@@ -29,6 +29,28 @@ class SelMocker : public ISelStraCtx, public IDataSink
 public:
 	SelMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0);
 	virtual ~SelMocker();
+
+private:
+	template<typename... Args>
+	void log_debug(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_debug(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_info(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_info(s.c_str());
+	}
+
+	template<typename... Args>
+	void log_error(const char* format, const Args& ...args)
+	{
+		std::string s = fmt::sprintf(format, args...);
+		stra_log_error(s.c_str());
+	}
 
 private:
 	void	dump_outputs();
@@ -92,9 +114,9 @@ public:
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
-	virtual void stra_log_info(const char* fmt, ...) override;
-	virtual void stra_log_debug(const char* fmt, ...) override;
-	virtual void stra_log_error(const char* fmt, ...) override;
+	virtual void stra_log_info(const char* message) override;
+	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_error(const char* message) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
 
@@ -235,4 +257,7 @@ protected:
 	StraFactInfo	_factory;
 
 	SelStrategy*	_strategy;
+
+	//tick¶©ÔÄÁÐ±í
+	faster_hashset<std::string> _tick_subs;
 };

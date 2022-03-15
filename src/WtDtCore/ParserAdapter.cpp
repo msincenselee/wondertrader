@@ -15,7 +15,7 @@
 #include "../Share/StrUtil.hpp"
 #include "../Share/DLLHelper.hpp"
 
-#include "../Includes/WTSParams.hpp"
+#include "../Includes/WTSVariant.hpp"
 #include "../Includes/WTSContractInfo.hpp"
 #include "../Includes/WTSDataDef.hpp"
 #include "../Includes/WTSVariant.hpp"
@@ -61,7 +61,6 @@ bool ParserAdapter::initExt(const char* id, IParserApi* api)
 			for (; it != ayContract->end(); it++)
 			{
 				WTSContractInfo* contract = STATIC_CONVERT(*it, WTSContractInfo*);
-				WTSCommodityInfo* pCommInfo = _bd_mgr->getCommodity(contract);
 				contractSet.insert(contract->getFullCode());
 			}
 
@@ -162,8 +161,7 @@ bool ParserAdapter::init(const char* id, WTSVariant* cfg)
 	{
 		_parser_api->registerSpi(this);
 
-		WTSParams* params = cfg->toParams();
-		if (_parser_api->init(params))
+		if (_parser_api->init(cfg))
 		{
 			ContractSet contractSet;
 			if (!_code_filter.empty())//优先判断合约过滤器
@@ -182,7 +180,6 @@ bool ParserAdapter::init(const char* id, WTSVariant* cfg)
 						code = ay[1];
 					}
 					WTSContractInfo* contract = _bd_mgr->getContract(code.c_str(), exchg.c_str());
-					WTSCommodityInfo* pCommInfo = _bd_mgr->getCommodity(contract);
 					contractSet.insert(contract->getFullCode());
 				}
 			}
@@ -196,7 +193,6 @@ bool ParserAdapter::init(const char* id, WTSVariant* cfg)
 					for (; it != ayContract->end(); it++)
 					{
 						WTSContractInfo* contract = STATIC_CONVERT(*it, WTSContractInfo*);
-						WTSCommodityInfo* pCommInfo = _bd_mgr->getCommodity(contract);
 						contractSet.insert(contract->getFullCode());
 					}
 
@@ -210,7 +206,6 @@ bool ParserAdapter::init(const char* id, WTSVariant* cfg)
 				for (; it != ayContract->end(); it++)
 				{
 					WTSContractInfo* contract = STATIC_CONVERT(*it, WTSContractInfo*);
-					WTSCommodityInfo* pCommInfo = _bd_mgr->getCommodity(contract);
 					contractSet.insert(contract->getFullCode());
 				}
 
@@ -224,8 +219,6 @@ bool ParserAdapter::init(const char* id, WTSVariant* cfg)
 		{
 			WTSLogger::log_dyn("parser", _id.c_str(), LL_ERROR, "[%s] Parser initializing failed: api initializing failed...", _id.c_str());
 		}
-
-		params->release();
 	}
 	else
 	{
@@ -309,7 +302,7 @@ void ParserAdapter::handleOrderQueue(WTSOrdQueData* ordQueData)
 	_dt_mgr->writeOrderQueue(ordQueData);
 }
 
-void ParserAdapter::handleQuote( WTSTickData *quote, bool bNeedSlice )
+void ParserAdapter::handleQuote( WTSTickData *quote, uint32_t procFlag )
 {
 	if (_stopped)
 		return;
@@ -317,26 +310,26 @@ void ParserAdapter::handleQuote( WTSTickData *quote, bool bNeedSlice )
 	if (quote->actiondate() == 0 || quote->tradingdate() == 0)
 		return;
 
-	WTSContractInfo* contract = _bd_mgr->getContract(quote->code(), quote->exchg());
+	WTSContractInfo* contract = quote->getContractInfo();
+	if (contract == NULL)
+	{
+		contract = _bd_mgr->getContract(quote->code(), quote->exchg());
+		quote->setContractInfo(contract);
+	}
+
 	if (contract == NULL)
 		return;
 
-	if (!_dt_mgr->writeTick(quote, bNeedSlice))
+	if (!_dt_mgr->writeTick(quote, procFlag))
 		return;
 }
 
-void ParserAdapter::handleParserLog( WTSLogLevel ll, const char* format, ... )
+void ParserAdapter::handleParserLog( WTSLogLevel ll, const char* message)
 {
 	if (_stopped)
 		return;
 
-	char szBuf[2048] = {0};
-	va_list args;
-	va_start(args, format);        
-	vsprintf(szBuf, format, args);
-	va_end(args);
-
-	WTSLogger::log2("parser", ll, szBuf);
+	WTSLogger::log_raw_by_cat("parser", ll, message);
 }
 
 IBaseDataMgr* ParserAdapter::getBaseDataMgr()

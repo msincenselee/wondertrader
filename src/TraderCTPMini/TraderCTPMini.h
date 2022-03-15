@@ -23,7 +23,7 @@
 #include "../Share/StdUtils.hpp"
 #include "../Share/DLLHelper.hpp"
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 class TraderCTPMini : public ITraderApi, public CThostFtdcTraderSpi
 {
@@ -53,7 +53,7 @@ private:
 	//////////////////////////////////////////////////////////////////////////
 	//ITraderApi½Ó¿Ú
 public:
-	virtual bool init(WTSParams* params) override;
+	virtual bool init(WTSVariant* params) override;
 
 	virtual void release() override;
 

@@ -18,18 +18,66 @@
 #include <string>
 #include <string.h>
 #include<chrono>
-
+/*
 #define CTIME_BUF_SIZE 64
 
-class TimeUtils {
+#define WIN32_LEAN_AND_MEAN
+
+#include <windows.h>
+
+typedef struct _KSYSTEM_TIME
+{
+	ULONG LowPart;
+	LONG High1Time;
+	LONG High2Time;
+} KSYSTEM_TIME, *PKSYSTEM_TIME;
+
+struct KUSER_SHARED_DATA
+{
+	ULONG TickCountLowDeprecated;
+	ULONG TickCountMultiplier;
+	volatile KSYSTEM_TIME InterruptTime;
+	volatile KSYSTEM_TIME SystemTime;
+	volatile KSYSTEM_TIME TimeZoneBias;
+};
+
+#define KI_USER_SHARED_DATA   0x7FFE0000
+#define SharedUserData   ((KUSER_SHARED_DATA * const)KI_USER_SHARED_DATA)
+
+#define TICKSPERSEC        10000000L
+*/
+
+class TimeUtils 
+{
 	
 public:
+
+	//static int64_t GetSysTime()
+	//{
+	//	LARGE_INTEGER SystemTime;
+	//	do
+	//	{
+	//		SystemTime.HighPart = SharedUserData->SystemTime.High1Time;
+	//		SystemTime.LowPart = SharedUserData->SystemTime.LowPart;
+	//	} 
+	//	while (SystemTime.HighPart != SharedUserData->SystemTime.High2Time);
+
+	//	return SystemTime.QuadPart;
+	//}
+
+	//static uint64_t mtime()
+	//{
+	//	uint64_t t = GetSysTime();
+	//	t = t - 11644473600L * TICKSPERSEC;
+	//	return t;
+	//}
 
 	static inline int64_t getLocalTimeNow(void)
 	{
 		timeb now;
 		ftime(&now);
 		return now.time * 1000 + now.millitm;
+		//return mtime() / 10000;
 	}
 
 	static inline int64_t getLocalTimeNano(void)
@@ -112,6 +160,11 @@ public:
 		return date * 1000000 + time;
 	}
 
+    /*
+     * 读取当前时间
+     * @date    当前日期，格式如20220309
+     * @time    当前时间，精确到毫秒，格式如103029500
+     */
 	static inline void getDateTime(uint32_t &date, uint32_t &time)
 	{
 		timeb now;
@@ -236,20 +289,40 @@ public:
 		return ts * 1000+ millisec;
 	}
 
-	static inline int64_t makeTime(long lDate, long lTime)
+	static inline int32_t getTZOffset()
 	{
+		static int32_t offset = 99;
+		if(offset == 99)
+		{
+			time_t now = time(NULL);
+			tm tm_ltm = *localtime(&now);
+			tm tm_gtm = *gmtime(&now);
 
+			time_t _gt = mktime(&tm_gtm);
+			tm _gtm2 = *localtime(&_gt);
+
+			offset = (uint32_t)(((now - _gt) + (_gtm2.tm_isdst ? 3600 : 0)) / 60);
+			offset /= 60;
+		}
+
+		return offset;
+	}
+
+	static inline int64_t makeTime(long lDate, long lTimeWithMs, bool isGM = false)
+	{
 		tm t;	
 		memset(&t,0,sizeof(tm));
 		t.tm_year = lDate/10000 - 1900;
 		t.tm_mon = (lDate%10000)/100 - 1;
 		t.tm_mday = lDate % 100;
-		t.tm_hour = lTime/10000000;
-		t.tm_min = (lTime%10000000)/100000;
-		t.tm_sec = (lTime%100000)/1000;
-		int millisec = lTime%1000;
+		t.tm_hour = lTimeWithMs/10000000;
+		t.tm_min = (lTimeWithMs%10000000)/100000;
+		t.tm_sec = (lTimeWithMs%100000)/1000;
+		int millisec = lTimeWithMs%1000;
 		//t.tm_isdst 	
 		time_t ts = mktime(&t);
+		if (isGM)
+			ts -= getTZOffset() * 3600;
 		if (ts == -1) return 0;
 		return ts * 1000+ millisec;
 	}
@@ -332,19 +405,19 @@ public:
 		return uYear*100 + uMonth;
 	}
 
-	static inline uint32_t timeToMinBar(uint32_t uDate, uint32_t uTime)
+	static inline uint64_t timeToMinBar(uint32_t uDate, uint32_t uTime)
 	{
-		return (uDate-19900000)*10000 + uTime;
+		return (uint64_t)((uDate-19900000)*10000) + uTime;
 	}
 
-	static inline uint32_t minBarToDate(uint32_t minTime)
+	static inline uint32_t minBarToDate(uint64_t minTime)
 	{
-		return minTime/10000 + 19900000;
+		return (uint32_t)(minTime/10000 + 19900000);
 	}
 
-	static inline uint32_t minBarToTime(uint32_t minTime)
+	static inline uint32_t minBarToTime(uint64_t minTime)
 	{
-		return minTime%10000;
+		return (uint32_t)(minTime%10000);
 	}
 
 	static inline bool isWeekends(uint32_t uDate)

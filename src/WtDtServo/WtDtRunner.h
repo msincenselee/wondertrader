@@ -13,12 +13,12 @@
 
 #include "WtDataManager.h"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSVariant;
 class WtDataStorage;
 class WTSKlineSlice;
 class WTSTickSlice;
-NS_OTP_END
+NS_WTP_END
 
 class WtDtRunner
 {
@@ -35,11 +35,11 @@ public:
 public:
 	WTSKlineSlice*	get_bars_by_range(const char* stdCode, const char* period, uint64_t beginTime, uint64_t endTime = 0);
 
-	WTSArray*		get_ticks_by_range(const char* stdCode, uint64_t beginTime, uint64_t endTime = 0);
+	WTSTickSlice*	get_ticks_by_range(const char* stdCode, uint64_t beginTime, uint64_t endTime = 0);
 
 	WTSKlineSlice*	get_bars_by_count(const char* stdCode, const char* period, uint32_t count, uint64_t endTime = 0);
 
-	WTSArray*		get_ticks_by_count(const char* stdCode, uint32_t count, uint64_t endTime = 0);
+	WTSTickSlice*	get_ticks_by_count(const char* stdCode, uint32_t count, uint64_t endTime = 0);
 
 private:
 	void	initDataMgr(WTSVariant* config);

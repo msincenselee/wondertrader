@@ -72,7 +72,7 @@ bool DataManager::init(WTSVariant* params, WTSBaseDataMgr* bdMgr, StateMonitor* 
 			_writer = pFuncCreateWriter();
 			_remover = pFuncDeleteWriter;
 		}
-
+		WTSLogger::info_f("Data storage module {} loaded", module);
 	}
 	else
 	{
@@ -100,12 +100,12 @@ void DataManager::release()
 	}
 }
 
-bool DataManager::writeTick(WTSTickData* curTick, bool bNeedSlice /* = true */)
+bool DataManager::writeTick(WTSTickData* curTick, uint32_t procFlag)
 {
 	if (_writer == NULL)
 		return false;
 
-	return _writer->writeTick(curTick, bNeedSlice);
+	return _writer->writeTick(curTick, procFlag);
 }
 
 bool DataManager::writeOrderQueue(WTSOrdQueData* curOrdQue)
@@ -155,6 +155,11 @@ IBaseDataMgr* DataManager::getBDMgr()
 
 bool DataManager::canSessionReceive(const char* sid)
 {
+	//By Wesley @ 2021.12.27
+	//如果状态机为NULL，说明是全天候模式，直接返回true即可
+	if (_state_mon == NULL)
+		return true;
+
 	return _state_mon->isInState(sid, SS_RECEIVING);
 }
 
@@ -192,12 +197,9 @@ uint32_t DataManager::getTradingDate(const char* pid)
 	return  _bd_mgr->getTradingDate(pid);
 }
 
-void DataManager::outputWriterLog(WTSLogLevel ll, const char* format, ...)
+void DataManager::outputLog(WTSLogLevel ll, const char* message)
 {
-	va_list args;
-	va_start(args, format);
-	WTSLogger::vlog(ll, format, args);
-	va_end(args);
+	WTSLogger::log_raw(ll, message);
 }
 
 #pragma endregion "IDataWriterSink"

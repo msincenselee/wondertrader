@@ -57,9 +57,6 @@
     <ClInclude Include="IniHelper.hpp">
       <Filter>Utils</Filter>
     </ClInclude>
-    <ClInclude Include="JsonToVariant.hpp">
-      <Filter>Utils</Filter>
-    </ClInclude>
     <ClInclude Include="StdUtils.hpp">
       <Filter>Utils</Filter>
     </ClInclude>
@@ -159,9 +156,6 @@
     <ClInclude Include="..\Includes\WTSObject.hpp">
       <Filter>Objects</Filter>
     </ClInclude>
-    <ClInclude Include="..\Includes\WTSParams.hpp">
-      <Filter>Objects</Filter>
-    </ClInclude>
     <ClInclude Include="..\Includes\WTSRiskDef.hpp">
       <Filter>Objects</Filter>
     </ClInclude>
@@ -214,6 +208,18 @@
       <Filter>Interfaces</Filter>
     </ClInclude>
     <ClInclude Include="ModuleHelper.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="fmtlib.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Includes\IRdmDtReader.h">
+      <Filter>Interfaces</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Includes\IBtDtReader.h">
+      <Filter>Interfaces</Filter>
+    </ClInclude>
+    <ClInclude Include="CpuHelper.hpp">
       <Filter>Utils</Filter>
     </ClInclude>
   </ItemGroup>

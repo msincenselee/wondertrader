@@ -1,5 +1,6 @@
-// TestPorter.cpp : 定义控制台应用程序的入口点。
-//
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
 #include "../WtBtPorter/WtBtPorter.h"
 
 #include "../Includes/WTSStruct.h"
@@ -9,7 +10,7 @@
 void on_getbar(CtxHandler ctxid, const char* code, const char* period, WTSBarStruct* bar, WtUInt32 count, bool isLast)
 {
 	if (bar)
-		printf("on_getbar@%u\r\n", bar->time);
+		printf("on_getbar@%u.%llu\r\n", bar->date, bar->time);
 	else
 		int x = 1;
 }
@@ -22,7 +23,7 @@ void on_gettick(CtxHandler ctxid, const char* code, WTSTickStruct* tick, bool is
 
 void on_init(CtxHandler ctxid)
 {
-	cta_get_bars(ctxid, "CFFEX.IF.HOT", "m5", 30, true, on_getbar);
+	cta_get_bars(ctxid, "BINANCE.DC.BTCUSDT", "m1", 30, true, on_getbar);
 	//cta_get_ticks(ctxid, "CFFEX.IF.HOT", 100, on_gettick);
 	//cta_log_text(ctxid, "this is a test message");
 }
@@ -82,22 +83,13 @@ void run_bt()
 
 	//register_ext_data_loader(on_load_his_bars, NULL, false);
 
-	auto id = init_cta_mocker("test", 0, true);
+	auto id = init_cta_mocker("test", 0, false, true);
 
 	init_backtest("logcfgbt.json", true, "./outputs_bt");
 
 	config_backtest("configbt.json", true);
 
-	run_backtest(true, true);
-
-	for(int i = 0; i < 20; i++)
-	{
-		printf("%d\r\n", i);
-		cta_step(id);
-
-		if (i == 5)
-			stop_backtest();
-	}
+	run_backtest(true, false);
 
 	printf("press enter key to exit\n");
 	getchar();

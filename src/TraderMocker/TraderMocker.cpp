@@ -1,6 +1,6 @@
 #include "TraderMocker.h"
 
-#include "../Includes/WTSParams.hpp"
+#include "../Includes/WTSVariant.hpp"
 #include "../Includes/WTSDataDef.hpp"
 #include "../Includes/WTSTradeDef.hpp"
 #include "../Includes/WTSContractInfo.hpp"
@@ -17,6 +17,21 @@
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 namespace rj = rapidjson;
+
+//By Wesley @ 2022.01.05
+#include "../Share/fmtlib.h"
+template<typename... Args>
+inline void write_log(ITraderSpi* sink, WTSLogLevel ll, const char* format, const Args&... args)
+{
+	if (sink == NULL)
+		return;
+
+	static thread_local char buffer[512] = { 0 };
+	std::string s = std::move(fmt::sprintf(format, args...));
+	strcpy(buffer, s.c_str());
+
+	sink->handleTraderLog(ll, buffer);
+}
 
 extern "C"
 {
@@ -134,7 +149,7 @@ int TraderMocker::orderInsert(WTSEntrust* entrust)
 	_io_service.post([this, entrust](){
 		StdUniqueLock lock(_mutex_api);
 
-		WTSContractInfo* ct = _bd_mgr->getContract(entrust->getCode(), entrust->getExchg());
+		WTSContractInfo* ct = entrust->getContractInfo();
 
 		/*
 		 *	1、开仓无需检查
@@ -153,7 +168,7 @@ int TraderMocker::orderInsert(WTSEntrust* entrust)
 				msg = "品种不存在";
 				break;
 			}
-			WTSCommodityInfo* commInfo = _bd_mgr->getCommodity(ct);
+			WTSCommodityInfo* commInfo = ct->getCommInfo();
 
 			//检查价格类型的合法性
 			if (entrust->getPriceType() == WPT_ANYPRICE && commInfo->getPriceMode() == PM_Limit)
@@ -269,7 +284,7 @@ int TraderMocker::orderInsert(WTSEntrust* entrust)
 			ordInfo->setVolume(entrust->getVolume());
 			ordInfo->setVolLeft(entrust->getVolume());
 			ordInfo->setPriceType(entrust->getPriceType());
-			ordInfo->setTimeCondition(entrust->getTimeCondition());
+			ordInfo->setOrderFlag(entrust->getOrderFlag());
 
 			if (_listener != NULL)
 			{
@@ -281,7 +296,7 @@ int TraderMocker::orderInsert(WTSEntrust* entrust)
 
 			if(_listener)
 			{
-				_listener->handleTraderLog(LL_INFO, "共有%u个品种有待撮合订单", _codes.size());
+				write_log(_listener,LL_INFO, "共有%u个品种有待撮合订单", _codes.size());
 			}
 
 			if (_orders == NULL)
@@ -330,7 +345,7 @@ int32_t TraderMocker::match_once()
 		if (ct == NULL)
 			continue;
 
-		WTSCommodityInfo* commInfo = _bd_mgr->getCommodity(ct);
+		WTSCommodityInfo* commInfo = ct->getCommInfo();
 
 		WTSTickData* curTick = (WTSTickData*)_ticks->grab(fullcode);
 		if (curTick && strcmp(curTick->code(), ct->getCode())==0)
@@ -474,7 +489,7 @@ int32_t TraderMocker::match_once()
 
 				if (count > 0)
 				{
-					//_listener->handleTraderLog(LL_INFO, "[TraderMocker]触发 %s.%s 开多 %u 条,价格:%u", tick->exchg(), tick->code(), iCount, uPrice);
+					//write_log(_listener,LL_INFO, "[TraderMocker]触发 %s.%s 开多 %u 条,价格:%u", tick->exchg(), tick->code(), iCount, uPrice);
 					for (const std::string& oid : to_erase)
 					{
 						_awaits->remove(oid);
@@ -499,7 +514,7 @@ int32_t TraderMocker::match_once()
 
 //////////////////////////////////////////////////////////////////////////
 
-bool TraderMocker::init(WTSParams *params)
+bool TraderMocker::init(WTSVariant *params)
 {
 	_millisecs = params->getUInt32("span");
 	_use_newpx = params->getBoolean("newpx");
@@ -570,7 +585,7 @@ void TraderMocker::load_positions()
 	}
 
 	if (_listener)
-		_listener->handleTraderLog(LL_INFO, "[TraderMocker]共加载%u条持仓数据", _positions.size());
+		write_log(_listener,LL_INFO, "[TraderMocker]共加载%u条持仓数据", _positions.size());
 }
 
 void TraderMocker::save_positions()
@@ -747,7 +762,7 @@ int TraderMocker::orderAction(WTSEntrustAction* action)
 		 */
 		if(ordInfo == NULL)
 		{
-			_listener->handleTraderLog(LL_ERROR, "订单%s不存在或者已完成", action->getOrderID());
+			write_log(_listener,LL_ERROR, "订单%s不存在或者已完成", action->getOrderID());
 			WTSError* err = WTSError::create(WEC_ORDERCANCEL, "订单不存在或者处于不可撤销状态");
 			if (_listener)
 				_listener->onTraderError(err);
@@ -755,8 +770,8 @@ int TraderMocker::orderAction(WTSEntrustAction* action)
 			return;
 		}
 
-		WTSContractInfo* ct = _bd_mgr->getContract(ordInfo->getCode(), ordInfo->getExchg());
-		WTSCommodityInfo* commInfo = _bd_mgr->getCommodity(ct);
+		WTSContractInfo* ct = ordInfo->getContractInfo();
+		WTSCommodityInfo* commInfo = ct->getCommInfo();
 
 		bool bPass = false;
 		do 
@@ -857,7 +872,7 @@ int TraderMocker::queryPositions()
 			if(ct == NULL)
 				continue;
 
-			WTSCommodityInfo* commInfo = _bd_mgr->getCommodity(ct);
+			WTSCommodityInfo* commInfo = ct->getCommInfo();
 
 			if(pItem._long._volume > 0)
 			{
@@ -920,7 +935,7 @@ void TraderMocker::handle_read(const boost::system::error_code& e, std::size_t b
 	if (e)
 	{
 		if (_listener)
-			_listener->handleTraderLog(LL_ERROR, "[TraderMocker]UDP行情接收出错:%s(%d)", e.message().c_str(), e.value());
+			write_log(_listener,LL_ERROR, "[TraderMocker]UDP行情接收出错:%s(%d)", e.message().c_str(), e.value());
 
 		if (!_terminated)
 		{

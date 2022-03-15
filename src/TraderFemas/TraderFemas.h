@@ -32,7 +32,7 @@
 
 #include "../Share/DLLHelper.hpp"
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 typedef std::unordered_map<std::string, std::string>	StringMap;
 
@@ -65,7 +65,7 @@ private:
 //////////////////////////////////////////////////////////////////////////
 //ITraderApi½Ó¿Ú
 public:
-	virtual bool init(WTSParams* params);
+	virtual bool init(WTSVariant* params);
 
 	virtual void release();
 

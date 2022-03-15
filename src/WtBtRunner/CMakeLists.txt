@@ -23,6 +23,9 @@ ELSE(GNUCC)
 		boost_filesystem
 		pthread
 		dl)
+	if(WIN32)
+		LIST(APPEND LIBS iconv)
+	ENDIF()
 ENDIF()
 
 #添加源码

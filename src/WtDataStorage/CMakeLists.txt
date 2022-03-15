@@ -26,6 +26,9 @@ ELSE (GNUCC)
 		pthread
 		boost_filesystem
 		)
+	if(WIN32)
+		LIST(APPEND LIBS iconv)
+	ENDIF()
 ENDIF()
 TARGET_LINK_LIBRARIES(WtDataStorage ${LIBS})
 

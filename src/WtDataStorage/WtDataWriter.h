@@ -1,6 +1,5 @@
 #pragma once
 #include "DataDefine.h"
-//#include "MysqlDB.hpp"
 
 #include "../Includes/FasterDefs.h"
 #include "../Includes/IDataWriter.h"
@@ -10,13 +9,12 @@
 #include <queue>
 
 typedef std::shared_ptr<BoostMappingFile> BoostMFPtr;
-//typedef std::shared_ptr<MysqlDb>	MysqlDbPtr;
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSContractInfo;
-NS_OTP_END
+NS_WTP_END
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 class WtDataWriter : public IDataWriter
 {
@@ -32,20 +30,20 @@ private:
 
 	void  check_loop();
 
-	//void  init_db();
+	uint32_t  dump_bars_to_file(WTSContractInfo* ct);
 
-	uint32_t  dump_hisdata_to_file(WTSContractInfo* ct);
+	uint32_t  dump_bars_via_dumper(WTSContractInfo* ct);
 
-	//uint32_t  dump_hisdata_to_db(WTSContractInfo* ct);
+private:
+	bool	dump_day_data(WTSContractInfo* ct, WTSBarStruct* newBar);
 
-	uint32_t  dump_hisdata_via_dumper(WTSContractInfo* ct);
-
+	bool	proc_block_data(const char* tag, std::string& content, bool isBar, bool bKeepHead = true);
 
 public:
 	virtual bool init(WTSVariant* params, IDataWriterSink* sink) override;
 	virtual void release() override;
 
-	virtual bool writeTick(WTSTickData* curTick, bool bNeedSlice = true) override;
+	virtual bool writeTick(WTSTickData* curTick, uint32_t procFlag) override;
 
 	virtual bool writeOrderQueue(WTSOrdQueData* curOrdQue) override;
 
@@ -61,21 +59,6 @@ public:
 
 private:
 	IBaseDataMgr*		_bd_mgr;
-
-	//typedef struct _DBConfig
-	//{
-	//	bool	_active;
-	//	char	_host[64];
-	//	int32_t	_port;
-	//	char	_dbname[32];
-	//	char	_user[32];
-	//	char	_pass[32];
-
-	//	_DBConfig() { memset(this, 0, sizeof(_DBConfig)); }
-	//} DBConfig;
-
-	//DBConfig	_db_conf;
-	//MysqlDbPtr	_db_conn;
 
 	typedef struct _KBlockPair
 	{
@@ -209,7 +192,7 @@ private:
 private:
 	void loadCache();
 
-	bool updateCache(WTSContractInfo* ct, WTSTickData* curTick, bool bNeedSlice = true);
+	bool updateCache(WTSContractInfo* ct, WTSTickData* curTick, uint32_t procFlag);
 
 	void pipeToTicks(WTSContractInfo* ct, WTSTickData* curTick);
 

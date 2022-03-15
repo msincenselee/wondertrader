@@ -166,8 +166,9 @@ void SelMocker::handle_session_end(uint32_t uCurDate)
 
 void SelMocker::handle_replay_done()
 {
-	WTSLogger::log_dyn_raw("strategy", _name.c_str(), LL_INFO, fmt::format("Strategy has been scheduled for {} times,totally taking {} microsecs,average of {} microsecs",
-		_emit_times, _total_calc_time, _total_calc_time / _emit_times).c_str());
+	WTSLogger::log_dyn_f("strategy", _name.c_str(), LL_INFO, 
+		"Strategy has been scheduled for {} times,totally taking {} microsecs,average of {} microsecs",
+		_emit_times, _total_calc_time, _total_calc_time / _emit_times);
 
 	dump_outputs();
 
@@ -287,6 +288,10 @@ void SelMocker::on_bar_close(const char* code, const char* period, WTSBarStruct*
 
 void SelMocker::on_tick_updated(const char* code, WTSTickData* newTick)
 {
+	auto it = _tick_subs.find(code);
+	if (it == _tick_subs.end())
+		return;
+
 	if (_strategy)
 		_strategy->on_tick(this, code, newTick);
 }
@@ -338,7 +343,7 @@ void SelMocker::on_session_begin(uint32_t curTDate)
 		PosInfo& pInfo = (PosInfo&)it.second;
 		if (!decimal::eq(pInfo._frozen, 0))
 		{
-			stra_log_debug("%.0f of %s frozen released on %u", pInfo._frozen, stdCode, curTDate);
+			log_debug("%.0f of %s frozen released on %u", pInfo._frozen, stdCode, curTDate);
 			pInfo._frozen = 0;
 		}
 	}
@@ -405,14 +410,14 @@ void SelMocker::stra_set_position(const char* stdCode, double qty, const char* u
 	WTSCommodityInfo* commInfo = _replayer->get_commodity_info(stdCode);
 	if (commInfo == NULL)
 	{
-		stra_log_error("Cannot find corresponding commodity info of %s", stdCode);
+		log_error("Cannot find corresponding commodity info of %s", stdCode);
 		return;
 	}
 
 	//如果不能做空，则目标仓位不能设置负数
 	if (!commInfo->canShort() && decimal::lt(qty, 0))
 	{
-		stra_log_error("Cannot short on %s", stdCode);
+		log_error("Cannot short on %s", stdCode);
 		return;
 	}
 
@@ -428,7 +433,8 @@ void SelMocker::stra_set_position(const char* stdCode, double qty, const char* u
 		//如果是T+1规则，则目标仓位不能小于冻结仓位
 		if (decimal::lt(qty, frozen))
 		{
-			stra_log_error(fmt::format("New position of {} cannot be set to {} due to {} being frozen", stdCode, qty, frozen).c_str());
+			WTSLogger::log_dyn_f("strategy", _name.c_str(), LL_ERROR, 
+				"New position of {} cannot be set to {} due to {} being frozen", stdCode, qty, frozen);
 			return;
 		}
 	}
@@ -483,7 +489,7 @@ void SelMocker::do_set_position(const char* stdCode, double qty, double price /*
 		{
 			//ASSERT(diff>0);
 			pInfo._frozen += diff;
-			stra_log_debug("%s frozen position up to %.0f", stdCode, pInfo._frozen);
+			log_debug("%s frozen position up to %.0f", stdCode, pInfo._frozen);
 		}
 
 		if (_slippage != 0)
@@ -569,7 +575,7 @@ void SelMocker::do_set_position(const char* stdCode, double qty, double price /*
 			if (commInfo->isT1())
 			{
 				pInfo._frozen += left;
-				stra_log_debug("%s frozen position up to %.0f", stdCode, pInfo._frozen);
+				log_debug("%s frozen position up to %.0f", stdCode, pInfo._frozen);
 			}
 
 			DetailInfo dInfo;
@@ -613,18 +619,18 @@ WTSKlineSlice* SelMocker::stra_get_bars(const char* stdCode, const char* period,
 
 	if (kline)
 	{
-		double lastClose = kline->close(-1);
+		double lastClose = kline->at(-1)->close;
 		uint64_t lastTime = 0;
 		if(basePeriod[0] == 'd')
 		{
-			lastTime = kline->date(-1);
+			lastTime = kline->at(-1)->date;
 			WTSSessionInfo* sInfo = _replayer->get_session_info(stdCode, true);
 			lastTime *= 1000000000;
 			lastTime += (uint64_t)sInfo->getCloseTime() * 100000;
 		}
 		else
 		{
-			lastTime = kline->time(-1);
+			lastTime = kline->at(-1)->time;
 			lastTime += 199000000000;
 			lastTime *= 100000;
 		}
@@ -651,6 +657,13 @@ WTSTickData* SelMocker::stra_get_last_tick(const char* stdCode)
 
 void SelMocker::stra_sub_ticks(const char* code)
 {
+	/*
+	 *	By Wesley @ 2022.03.01
+	 *	主动订阅tick会在本地记一下
+	 *	tick数据回调的时候先检查一下
+	 */
+	_tick_subs.insert(code);
+
 	_replayer->sub_tick(_context_id, code);
 }
 
@@ -675,28 +688,19 @@ uint32_t SelMocker::stra_get_time()
 	return _replayer->get_min_time();
 }
 
-void SelMocker::stra_log_info(const char* fmt, ...)
+void SelMocker::stra_log_info(const char* message)
 {
-	va_list args;
-	va_start(args, fmt);
-	WTSLogger::vlog_dyn("strategy", _name.c_str(), LL_INFO, fmt, args);
-	va_end(args);
+	WTSLogger::log_dyn_raw("strategy", _name.c_str(), LL_INFO, message);
 }
 
-void SelMocker::stra_log_debug(const char* fmt, ...)
+void SelMocker::stra_log_debug(const char* message)
 {
-	va_list args;
-	va_start(args, fmt);
-	WTSLogger::vlog_dyn("strategy", _name.c_str(), LL_DEBUG, fmt, args);
-	va_end(args);
+	WTSLogger::log_dyn_raw("strategy", _name.c_str(), LL_DEBUG, message);
 }
 
-void SelMocker::stra_log_error(const char* fmt, ...)
+void SelMocker::stra_log_error(const char* message)
 {
-	va_list args;
-	va_start(args, fmt);
-	WTSLogger::vlog_dyn("strategy", _name.c_str(), LL_ERROR, fmt, args);
-	va_end(args);
+	WTSLogger::log_dyn_raw("strategy", _name.c_str(), LL_ERROR, message);
 }
 
 const char* SelMocker::stra_load_user_data(const char* key, const char* defVal /*= ""*/)

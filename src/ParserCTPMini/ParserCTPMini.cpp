@@ -13,10 +13,25 @@
 #include "../Includes/WTSDataDef.hpp"
 #include "../Share/StdUtils.hpp"
 #include "../Includes/WTSContractInfo.hpp"
-#include "../Includes/WTSParams.hpp"
+#include "../Includes/WTSVariant.hpp"
 #include "../Includes/IBaseDataMgr.h"
 #include "../Share/ModuleHelper.hpp"
 #include <boost/filesystem.hpp>
+
+ //By Wesley @ 2022.01.05
+#include "../Share/fmtlib.h"
+template<typename... Args>
+inline void write_log(IParserSpi* sink, WTSLogLevel ll, const char* format, const Args&... args)
+{
+	if (sink == NULL)
+		return;
+
+	static thread_local char buffer[512] = { 0 };
+	memset(buffer, 0, 512);
+	fmt::format_to(buffer, format, args...);
+
+	sink->handleParserLog(ll, buffer);
+}
 
 extern "C"
 {
@@ -74,7 +89,7 @@ ParserCTPMini::~ParserCTPMini()
 	m_pUserAPI = NULL;
 }
 
-bool ParserCTPMini::init(WTSParams* config)
+bool ParserCTPMini::init(WTSVariant* config)
 {
 	m_strFrontAddr = config->getCString("front");
 	m_strBroker = config->getCString("broker");
@@ -150,7 +165,7 @@ void ParserCTPMini::OnFrontConnected()
 {
 	if(m_sink)
 	{
-		m_sink->handleParserLog(LL_INFO, "[ParserCTPMini] Market data server connected");
+		write_log(m_sink, LL_INFO, "[ParserCTPMini] Market data server connected");
 		m_sink->handleEvent(WPE_Connect, 0);
 	}
 
@@ -185,7 +200,7 @@ void ParserCTPMini::OnFrontDisconnected( int nReason )
 {
 	if(m_sink)
 	{
-		m_sink->handleParserLog(LL_ERROR, StrUtil::printf("[ParserCTPMini] Market data server disconnected: %d...", nReason).c_str());
+		write_log(m_sink, LL_ERROR, "[ParserCTPMini] Market data server disconnected: {}", nReason);
 		m_sink->handleEvent(WPE_Close, 0);
 	}
 }
@@ -240,7 +255,7 @@ void ParserCTPMini::OnRtnDepthMarketData( CThostFtdcDepthMarketDataField *pDepth
 	if (contract == NULL)
 		return;
 
-	WTSCommodityInfo* pCommInfo = m_pBaseDataMgr->getCommodity(contract);
+	WTSCommodityInfo* pCommInfo = contract->getCommInfo();
 
 	//if (strcmp(contract->getExchg(), "CZCE") == 0)
 	//{
@@ -248,6 +263,7 @@ void ParserCTPMini::OnRtnDepthMarketData( CThostFtdcDepthMarketDataField *pDepth
 	//}
 
 	WTSTickData* tick = WTSTickData::create(pDepthMarketData->InstrumentID);
+	tick->setContractInfo(contract);
 	WTSTickStruct& quote = tick->getTickStruct();
 	strcpy(quote.exchg, pCommInfo->getExchg());
 	
@@ -310,7 +326,7 @@ void ParserCTPMini::OnRtnDepthMarketData( CThostFtdcDepthMarketDataField *pDepth
 	quote.bid_qty[4] = pDepthMarketData->BidVolume5;
 
 	if(m_sink)
-		m_sink->handleQuote(tick, true);
+		m_sink->handleQuote(tick, 1);
 
 	tick->release();
 }
@@ -330,7 +346,7 @@ void ParserCTPMini::OnRspSubMarketData( CThostFtdcSpecificInstrumentField *pSpec
 void ParserCTPMini::OnHeartBeatWarning( int nTimeLapse )
 {
 	if(m_sink)
-		m_sink->handleParserLog(LL_INFO, StrUtil::printf("[ParserCTPMini] Heartbeating, elapse: %d...", nTimeLapse).c_str());
+		write_log(m_sink, LL_INFO, "[ParserCTPMini] Heartbeating, elapse: {}", nTimeLapse);
 }
 
 void ParserCTPMini::ReqUserLogin()
@@ -349,7 +365,7 @@ void ParserCTPMini::ReqUserLogin()
 	if(iResult != 0)
 	{
 		if(m_sink)
-			m_sink->handleParserLog(LL_ERROR, StrUtil::printf("[ParserCTPMini] Sending login request failed: %d", iResult).c_str());
+			write_log(m_sink, LL_ERROR, "[ParserCTPMini] Sending login request failed: {}", iResult);
 	}
 }
 
@@ -365,7 +381,7 @@ void ParserCTPMini::SubscribeMarketData()
 	int nCount = 0;
 	for(auto& code : codeFilter)
 	{
-		std::size_t pos = code.find(".");
+		std::size_t pos = code.find('.');
 		if (pos != std::string::npos)
 			subscribe[nCount++] = (char*)code.c_str() + pos + 1;
 		else
@@ -378,12 +394,12 @@ void ParserCTPMini::SubscribeMarketData()
 		if(iResult != 0)
 		{
 			if(m_sink)
-				m_sink->handleParserLog(LL_ERROR, StrUtil::printf("[ParserCTPMini] Sending md subscribe request failed: %d", iResult).c_str());
+				write_log(m_sink, LL_ERROR, "[ParserCTPMini] Sending md subscribe request failed: {}", iResult);
 		}
 		else
 		{
 			if(m_sink)
-				m_sink->handleParserLog(LL_INFO, StrUtil::printf("[ParserCTPMini] Market data of %u contracts subscribed in total", nCount).c_str());
+				write_log(m_sink, LL_INFO, "[ParserCTPMini] Market data of {} contracts subscribed in total", nCount);
 		}
 	}
 	codeFilter.clear();
@@ -408,7 +424,7 @@ void ParserCTPMini::subscribe(const CodeSet &vecSymbols)
 		int nCount = 0;
 		for (auto& code  : vecSymbols)
 		{
-			std::size_t pos = code.find(".");
+			std::size_t pos = code.find('.');
 			if (pos != std::string::npos)
 				subscribe[nCount++] = (char*)code.c_str() + pos + 1;
 			else
@@ -421,12 +437,12 @@ void ParserCTPMini::subscribe(const CodeSet &vecSymbols)
 			if(iResult != 0)
 			{
 				if (m_sink)
-					m_sink->handleParserLog(LL_ERROR, StrUtil::printf("[ParserCTPMini] Sending md subscribe request failed: %d", iResult).c_str());
+					write_log(m_sink, LL_ERROR, "[ParserCTPMini] Sending md subscribe request failed: {}", iResult);
 			}
 			else
 			{
 				if (m_sink)
-					m_sink->handleParserLog(LL_INFO, StrUtil::printf("[ParserCTPMini] Market data of %u contracts subscribed in total", nCount).c_str());
+					write_log(m_sink, LL_INFO, "[ParserCTPMini] Market data of {} contracts subscribed in total", nCount);
 			}
 		}
 	}

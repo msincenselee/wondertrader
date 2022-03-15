@@ -2,16 +2,13 @@
 #include "EventNotifier.h"
 
 #include "../Share/CodeHelper.hpp"
-#include "../Share/JsonToVariant.hpp"
-
+#include "../Includes/WTSVariant.hpp"
+#include "../WTSUtils/WTSCfgLoader.h"
 #include "../WTSTools/WTSLogger.h"
 
 #include <boost/filesystem.hpp>
 
-#include <rapidjson/document.h>
-namespace rj = rapidjson;
-
-USING_NS_OTP;
+USING_NS_WTP;
 
 void WtFilterMgr::load_filters(const char* fileName)
 {
@@ -23,7 +20,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 	if (!StdFile::exists(_filter_file.c_str()))
 	{
-		WTSLogger::error("Filters configuration file %s not exists", _filter_file.c_str());
+		WTSLogger::debug_f("Filters configuration file {} not exists", _filter_file);
 		return;
 	}
 
@@ -33,34 +30,12 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 	if (_filter_timestamp != 0)
 	{
-		WTSLogger::info("Filters configuration file %s modified, will be reloaded", _filter_file.c_str());
+		WTSLogger::info_f("Filters configuration file {} modified, will be reloaded", _filter_file);
 		if (_notifier)
 			_notifier->notifyEvent("Filter file has been reloaded");
 	}
 
-	std::string content;
-	StdFile::read_file_content(_filter_file.c_str(), content);
-	if (content.empty())
-	{
-		WTSLogger::error("Filters configuration file %s is empty", _filter_file.c_str());
-		return;
-	}
-
-	rj::Document root;
-	root.Parse(content.c_str());
-
-	if (root.HasParseError())
-	{
-		WTSLogger::error("Filters configuration file %s parsing failed", _filter_file.c_str());
-		return;
-	}
-
-	WTSVariant* cfg = WTSVariant::createObject();
-	if (!jsonToVariant(root, cfg))
-	{
-		WTSLogger::error("Filters configuration file %s converting failed", _filter_file.c_str());
-		return;
-	}
+	WTSVariant* cfg = WTSCfgLoader::load_from_file(_filter_file.c_str(), true);
 
 	_filter_timestamp = lastModTime;
 
@@ -85,7 +60,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 			if (fAct == FA_None)
 			{
-				WTSLogger::error("Action %s of strategy filter %s not recognized", action, key.c_str());
+				WTSLogger::error_f("Action {} of strategy filter {} not recognized", action, key);
 				continue;
 			}
 
@@ -94,7 +69,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 			fItem._action = fAct;
 			fItem._target = cfgItem->getDouble("target");
 
-			WTSLogger::info("Strategy filter %s loaded", key.c_str());
+			WTSLogger::info_f("Strategy filter {} loaded", key);
 		}
 	}
 
@@ -116,7 +91,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 			if (fAct == FA_None)
 			{
-				WTSLogger::error("Action %s of code filter %s not recognized", action, stdCode.c_str());
+				WTSLogger::error_f("Action {} of code filter {} not recognized", action, stdCode);
 				continue;
 			}
 
@@ -125,7 +100,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 			fItem._action = fAct;
 			fItem._target = cfgItem->getDouble("target");
 
-			WTSLogger::info("Code filter %s loaded", stdCode.c_str());
+			WTSLogger::info_f("Code filter {} loaded", stdCode);
 		}
 	}
 
@@ -137,7 +112,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 		for (const std::string& execid : executer_ids)
 		{
 			bool bDisabled = filterExecuters->getBoolean(execid.c_str());
-			WTSLogger::info("Executer %s is %s", execid.c_str(), bDisabled?"disabled":"enabled");
+			WTSLogger::info_f("Executer {} is %s", execid, bDisabled?"disabled":"enabled");
 			_exec_filters[execid] = bDisabled;
 		}
 	}

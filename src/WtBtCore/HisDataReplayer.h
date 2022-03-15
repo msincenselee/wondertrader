@@ -9,7 +9,8 @@
  */
 #pragma once
 #include <string>
-#include "DataDefine.h"
+#include "HisDataMgr.h"
+#include "../WtDataStorage/DataDefine.h"
 
 #include "../Includes/FasterDefs.h"
 #include "../Includes/WTSMarcos.h"
@@ -18,7 +19,7 @@
 #include "../WTSTools/WTSHotMgr.h"
 #include "../WTSTools/WTSBaseDataMgr.h"
 
-NS_OTP_BEGIN
+NS_WTP_BEGIN
 class WTSTickData;
 class WTSVariant;
 class WTSKlineSlice;
@@ -34,11 +35,9 @@ class WTSOrdQueData;
 class WTSTransData;
 
 class EventNotifier;
-NS_OTP_END
+NS_WTP_END
 
-//typedef std::shared_ptr<MysqlDb>	MysqlDbPtr;
-
-USING_NS_OTP;
+USING_NS_WTP;
 
 class IDataSink
 {
@@ -159,7 +158,18 @@ private:
 		_BarsList() :_cursor(UINT_MAX), _count(0), _times(1), _factor(1){}
 	} BarsList;
 
-	typedef faster_hashmap<std::string, BarsList>	BarsCache;
+	/*
+	 *	By Wesley @ 2022.03.13
+	 *	这里把缓存改成智能指针
+	 *	因为有用户发现如果在oncalc的时候获取未在oninit中订阅的K线的时候
+	 *	因为使用BarList的引用，当K线缓存的map重新插入新的K线以后
+	 *	引用的地方失效了，会引用到错误地址
+	 *	我怀疑这里有可能是重新拷贝了一下数据
+	 *	这里改成智能指针就能避免这个问题，因为不管map自己的内存如何组织
+	 *	智能指针指向的地址都是不会变的
+	 */
+	typedef std::shared_ptr<BarsList> BarsListPtr;
+	typedef faster_hashmap<std::string, BarsListPtr>	BarsCache;
 
 	typedef enum tagTaskPeriodType
 	{
@@ -228,12 +238,12 @@ private:
 	/*
 	 *	缓存整合的期货合约历史K线（针对.HOT//2ND）
 	 */
-	bool		cacheIntegratedFutBars(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
+	bool		cacheIntegratedFutBarsFromBin(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
 
 	/*
 	 *	缓存复权股票K线数据
 	 */
-	bool		cacheAdjustedStkBars(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
+	bool		cacheAdjustedStkBarsFromBin(const std::string& key, const char* stdCode, WTSKlinePeriod period, bool bSubbed = true);
 
 	void		onMinuteEnd(uint32_t uDate, uint32_t uTime, uint32_t endTDate = 0, bool tickSimulated = true);
 
@@ -274,14 +284,37 @@ private:
 
 	uint32_t	locate_barindex(const std::string& key, uint64_t curTime, bool bUpperBound = false);
 
+	/*
+	 *	按照K线进行回测
+	 *
+	 *	@bNeedDump	是否将回测进度落地到文件中
+	 */
 	void	run_by_bars(bool bNeedDump = false);
+
+	/*
+	 *	按照定时任务进行回测
+	 *
+	 *	@bNeedDump	是否将回测进度落地到文件中
+	 */
 	void	run_by_tasks(bool bNeedDump = false);
+
+	/*
+	 *	按照tick进行回测
+	 *
+	 *	@bNeedDump	是否将回测进度落地到文件中
+	 */
 	void	run_by_ticks(bool bNeedDump = false);
 
 public:
 	bool init(WTSVariant* cfg, EventNotifier* notifier = NULL, IBtDataLoader* dataLoader = NULL);
 
 	bool prepare();
+
+	/*
+	 *	运行回测
+	 *
+	 *	@bNeedDump	是否将回测进度落地到文件中
+	 */
 	void run(bool bNeedDump = false);
 	
 	void stop();
@@ -427,5 +460,7 @@ private:
 	const AdjFactorList& getAdjFactors(const char* code, const char* exchg, const char* pid);
 
 	EventNotifier*	_notifier;
+
+	HisDataMgr		_his_dt_mgr;
 };
 

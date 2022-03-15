@@ -16,7 +16,7 @@
 #include "../Share/DLLHelper.hpp"
 #include "MatchEngine.h"
 
-USING_NS_OTP;
+USING_NS_WTP;
 
 class ExecMocker : public ExecuteContext, public IDataSink, public IMatchSink
 {
@@ -49,7 +49,7 @@ public:
 
 	virtual WTSTickData* grabLastTick(const char* stdCode) override;
 
-	virtual double getPosition(const char* stdCode, int32_t flag = 3) override;
+	virtual double getPosition(const char* stdCode, bool validOnly = true, int32_t flag = 3) override;
 
 	virtual OrderMap* getOrders(const char* stdCode) override;
 
@@ -63,7 +63,7 @@ public:
 
 	virtual OrderIDs cancel(const char* stdCode, bool isBuy, double qty = 0) override;
 
-	virtual void writeLog(const char* fmt, ...) override;
+	virtual void writeLog(const char* message) override;
 
 	virtual WTSCommodityInfo* getCommodityInfo(const char* stdCode) override;
 	virtual WTSSessionInfo* getSessionInfo(const char* stdCode) override;
