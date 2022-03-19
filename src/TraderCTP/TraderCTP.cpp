@@ -34,8 +34,8 @@ inline void write_log(ITraderSpi* sink, WTSLogLevel ll, const char* format, cons
 		return;
 
 	static thread_local char buffer[512] = { 0 };
-	memset(buffer, 0, 512);
-	fmt::format_to(buffer, format, args...);
+	char* s = fmt::format_to(buffer, format, args...);
+	s[0] = '\0';
 
 	sink->handleTraderLog(ll, buffer);
 }
@@ -239,7 +239,7 @@ bool TraderCTP::makeEntrustID(char* buffer, int length)
 	{
 		memset(buffer, 0, length);
 		uint32_t orderref = m_orderRef.fetch_add(1) + 1;
-		sprintf(buffer, "%06u#%010u#%06u", m_frontID, m_sessionID, orderref);
+		fmt::format_to(buffer, "{:06d}#{:010d}#{:06d}", m_frontID, (uint32_t)m_sessionID, orderref);
 		return true;
 	}
 	catch (...)
@@ -284,10 +284,10 @@ int TraderCTP::doLogin()
 {
 	CThostFtdcReqUserLoginField req;
 	memset(&req, 0, sizeof(req));
-	strcpy(req.BrokerID, m_strBroker.c_str());
-	strcpy(req.UserID, m_strUser.c_str());
-	strcpy(req.Password, m_strPass.c_str());
-	strcpy(req.UserProductInfo, m_strProdInfo.c_str());
+	wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+	wt_strcpy(req.UserID, m_strUser.c_str(), m_strUser.size());
+	wt_strcpy(req.Password, m_strPass.c_str(), m_strPass.size());
+	wt_strcpy(req.UserProductInfo, m_strProdInfo.c_str(), m_strProdInfo.size());
 	int iResult = m_pUserAPI->ReqUserLogin(&req, genRequestID());
 	if (iResult != 0)
 	{
@@ -306,8 +306,8 @@ int TraderCTP::logout()
 
 	CThostFtdcUserLogoutField req;
 	memset(&req, 0, sizeof(req));
-	strcpy(req.BrokerID, m_strBroker.c_str());
-	strcpy(req.UserID, m_strUser.c_str());
+	wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+	wt_strcpy(req.UserID, m_strUser.c_str(), m_strUser.size());
 	int iResult = m_pUserAPI->ReqUserLogout(&req, genRequestID());
 	if (iResult != 0)
 	{
@@ -321,24 +321,22 @@ int TraderCTP::orderInsert(WTSEntrust* entrust)
 {
 	if (m_pUserAPI == NULL || m_wrapperState != WS_ALLREADY)
 	{
+		write_log(m_sink, LL_ERROR, "[TraderCTP] Trading channel not ready");
 		return -1;
 	}
 
 	CThostFtdcInputOrderField req;
 	memset(&req, 0, sizeof(req));
-	///经纪公司代码
-	strcpy(req.BrokerID, m_strBroker.c_str());
-	///投资者代码
-	strcpy(req.InvestorID, m_strUser.c_str());
-	///合约代码
-	strcpy(req.InstrumentID, entrust->getCode());
+	wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+	wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 
-	strcpy(req.ExchangeID, entrust->getExchg());
+	wt_strcpy(req.InstrumentID, entrust->getCode());
+	wt_strcpy(req.ExchangeID, entrust->getExchg());
 
 	if (strlen(entrust->getUserTag()) == 0)
 	{
 		///报单引用
-		sprintf(req.OrderRef, "%u", m_orderRef.fetch_add(0));
+		fmt::format_to(req.OrderRef, "{}", m_orderRef.fetch_add(0));
 
 		//生成本地委托单号
 		//entrust->setEntrustID(generateEntrustID(m_frontID, m_sessionID, m_orderRef++).c_str());	
@@ -349,7 +347,7 @@ int TraderCTP::orderInsert(WTSEntrust* entrust)
 		extractEntrustID(entrust->getEntrustID(), fid, sid, orderref);
 		//entrust->setEntrustID(entrust->getUserTag());
 		///报单引用
-		sprintf(req.OrderRef, "%u", orderref);
+		fmt::format_to(req.OrderRef, "{}", orderref);
 	}
 
 	if (strlen(entrust->getUserTag()) > 0)
@@ -361,7 +359,10 @@ int TraderCTP::orderInsert(WTSEntrust* entrust)
 
 	WTSContractInfo* ct = entrust->getContractInfo();
 	if (ct == NULL)
+	{
+		write_log(m_sink, LL_ERROR, "[TraderCTP] Instrument {} is not valid", entrust->getExchg(), entrust->getCode());
 		return -1;
+	}
 
 	///用户代码
 	//	TThostFtdcUserIDType	UserID;
@@ -393,6 +394,7 @@ int TraderCTP::orderInsert(WTSEntrust* entrust)
 		req.TimeCondition = THOST_FTDC_TC_IOC;
 		req.VolumeCondition = THOST_FTDC_VC_CV;
 	}
+	//req.MinVolume = 1;
 	
 	///触发条件: 立即
 	req.ContingentCondition = THOST_FTDC_CC_Immediately;
@@ -429,12 +431,11 @@ int TraderCTP::orderAction(WTSEntrustAction* action)
 
 	CThostFtdcInputOrderActionField req;
 	memset(&req, 0, sizeof(req));
-	///经纪公司代码
-	strcpy(req.BrokerID, m_strBroker.c_str());
-	///投资者代码
-	strcpy(req.InvestorID, m_strUser.c_str());
+	wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+	wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
+
 	///报单引用
-	sprintf(req.OrderRef, "%u", orderref);
+	fmt::format_to(req.OrderRef, "{}", orderref);
 	///请求编号
 	///前置编号
 	req.FrontID = frontid;
@@ -443,14 +444,14 @@ int TraderCTP::orderAction(WTSEntrustAction* action)
 	///操作标志
 	req.ActionFlag = wrapActionFlag(action->getActionFlag());
 	///合约代码
-	strcpy(req.InstrumentID, action->getCode());
+	wt_strcpy(req.InstrumentID, action->getCode());
 
 	req.LimitPrice = action->getPrice();
 
 	req.VolumeChange = (int32_t)action->getVolume();
 
-	strcpy(req.OrderSysID, action->getOrderID());
-	strcpy(req.ExchangeID, action->getExchg());
+	wt_strcpy(req.OrderSysID, action->getOrderID());
+	wt_strcpy(req.ExchangeID, action->getExchg());
 
 	int iResult = m_pUserAPI->ReqOrderAction(&req, genRequestID());
 	if (iResult != 0)
@@ -473,8 +474,8 @@ int TraderCTP::queryAccount()
 		m_queQuery.push([this]() {
 			CThostFtdcQryTradingAccountField req;
 			memset(&req, 0, sizeof(req));
-			strcpy(req.BrokerID, m_strBroker.c_str());
-			strcpy(req.InvestorID, m_strUser.c_str());
+			wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+			wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 			m_pUserAPI->ReqQryTradingAccount(&req, genRequestID());
 		});
 	}
@@ -496,8 +497,8 @@ int TraderCTP::queryPositions()
 		m_queQuery.push([this]() {
 			CThostFtdcQryInvestorPositionField req;
 			memset(&req, 0, sizeof(req));
-			strcpy(req.BrokerID, m_strBroker.c_str());
-			strcpy(req.InvestorID, m_strUser.c_str());
+			wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+			wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 			m_pUserAPI->ReqQryInvestorPosition(&req, genRequestID());
 		});
 	}
@@ -519,8 +520,8 @@ int TraderCTP::queryOrders()
 		m_queQuery.push([this]() {
 			CThostFtdcQryOrderField req;
 			memset(&req, 0, sizeof(req));
-			strcpy(req.BrokerID, m_strBroker.c_str());
-			strcpy(req.InvestorID, m_strUser.c_str());
+			wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+			wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 
 			m_pUserAPI->ReqQryOrder(&req, genRequestID());
 		});
@@ -543,8 +544,8 @@ int TraderCTP::queryTrades()
 		m_queQuery.push([this]() {
 			CThostFtdcQryTradeField req;
 			memset(&req, 0, sizeof(req));
-			strcpy(req.BrokerID, m_strBroker.c_str());
-			strcpy(req.InvestorID, m_strUser.c_str());
+			wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+			wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 
 			m_pUserAPI->ReqQryTrade(&req, genRequestID());
 		});
@@ -567,9 +568,9 @@ int TraderCTP::querySettlement(uint32_t uDate)
 	m_queQuery.push([this, uDate]() {
 		CThostFtdcQrySettlementInfoField req;
 		memset(&req, 0, sizeof(req));
-		strcpy(req.BrokerID, m_strBroker.c_str());
-		strcpy(req.InvestorID, m_strUser.c_str());
-		sprintf(req.TradingDay, "%u", uDate);
+		wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+		wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
+		fmt::format_to(req.TradingDay, "{}", uDate);
 
 		m_pUserAPI->ReqQrySettlementInfo(&req, genRequestID());
 	});
@@ -1226,7 +1227,7 @@ WTSOrderInfo* TraderCTP::makeOrderInfo(CThostFtdcOrderField* orderField)
 	if (orderField->OrderSubmitStatus >= THOST_FTDC_OSS_InsertRejected)
 		pRet->setError(true);		
 
-	pRet->setEntrustID(generateEntrustID(orderField->FrontID, orderField->SessionID, atoi(orderField->OrderRef)).c_str());
+	generateEntrustID(pRet->getEntrustID(), orderField->FrontID, orderField->SessionID, atoi(orderField->OrderRef));
 	pRet->setOrderID(orderField->OrderSysID);
 
 	pRet->setStateMsg(orderField->StatusMsg);
@@ -1281,7 +1282,8 @@ WTSEntrust* TraderCTP::makeEntrust(CThostFtdcInputOrderField *entrustField)
 			pRet->setOrderFlag(WOF_FOK);
 	}
 
-	pRet->setEntrustID(generateEntrustID(m_frontID, m_sessionID, atoi(entrustField->OrderRef)).c_str());
+	//pRet->setEntrustID(generateEntrustID(m_frontID, m_sessionID, atoi(entrustField->OrderRef)).c_str());
+	generateEntrustID(pRet->getEntrustID(), m_frontID, m_sessionID, atoi(entrustField->OrderRef));
 
 	//StringMap::iterator it = m_mapEntrustTag.find(pRet->getEntrustID());
 	//if (it != m_mapEntrustTag.end())
@@ -1351,9 +1353,10 @@ WTSTradeInfo* TraderCTP::makeTradeRecord(CThostFtdcTradeField *tradeField)
 	return pRet;
 }
 
-std::string TraderCTP::generateEntrustID(uint32_t frontid, uint32_t sessionid, uint32_t orderRef)
+void TraderCTP::generateEntrustID(char* buffer, uint32_t frontid, uint32_t sessionid, uint32_t orderRef)
 {
-	return StrUtil::printf("%06u#%010u#%06u", frontid, sessionid, orderRef);
+	buffer = fmt::format_to(buffer, "{:06d}#{:010d}#{:06d}", frontid, sessionid, orderRef);
+	buffer[0] = '\0';
 }
 
 bool TraderCTP::extractEntrustID(const char* entrustid, uint32_t &frontid, uint32_t &sessionid, uint32_t &orderRef)
@@ -1409,8 +1412,8 @@ int TraderCTP::queryConfirm()
 		m_queQuery.push([this]() {
 			CThostFtdcQrySettlementInfoConfirmField req;
 			memset(&req, 0, sizeof(req));
-			strcpy(req.BrokerID, m_strBroker.c_str());
-			strcpy(req.InvestorID, m_strUser.c_str());
+			wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+			wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 
 			int iResult = m_pUserAPI->ReqQrySettlementInfoConfirm(&req, genRequestID());
 			if (iResult != 0)
@@ -1435,11 +1438,11 @@ int TraderCTP::confirm()
 	//std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 	CThostFtdcSettlementInfoConfirmField req;
 	memset(&req, 0, sizeof(req));
-	strcpy(req.BrokerID, m_strBroker.c_str());
-	strcpy(req.InvestorID, m_strUser.c_str());
+	wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+	wt_strcpy(req.InvestorID, m_strUser.c_str(), m_strUser.size());
 
-	sprintf(req.ConfirmDate, "%u", TimeUtils::getCurDate());
-	strncpy(req.ConfirmTime, TimeUtils::getLocalTime().c_str(), 8);
+	fmt::format_to(req.ConfirmDate, "{}", TimeUtils::getCurDate());
+	memcpy(req.ConfirmTime, TimeUtils::getLocalTime().c_str(), 8);
 
 	int iResult = m_pUserAPI->ReqSettlementInfoConfirm(&req, genRequestID());
 	if (iResult != 0)
@@ -1455,11 +1458,11 @@ int TraderCTP::authenticate()
 {
 	CThostFtdcReqAuthenticateField req;
 	memset(&req, 0, sizeof(req));
-	strcpy(req.BrokerID, m_strBroker.c_str());
-	strcpy(req.UserID, m_strUser.c_str());
+	wt_strcpy(req.BrokerID, m_strBroker.c_str(), m_strBroker.size());
+	wt_strcpy(req.UserID, m_strUser.c_str(), m_strUser.size());
 	//strcpy(req.UserProductInfo, m_strProdInfo.c_str());
-	strcpy(req.AuthCode, m_strAuthCode.c_str());
-	strcpy(req.AppID, m_strAppID.c_str());
+	wt_strcpy(req.AuthCode, m_strAuthCode.c_str(), m_strAuthCode.size());
+	wt_strcpy(req.AppID, m_strAppID.c_str(), m_strAppID.size());
 	m_pUserAPI->ReqAuthenticate(&req, genRequestID());
 
 	return 0;

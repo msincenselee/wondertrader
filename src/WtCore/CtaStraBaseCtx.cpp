@@ -814,11 +814,12 @@ bool CtaStraBaseCtx::on_schedule(uint32_t curDate, uint32_t curTime)
 
 	for (auto it = _kline_tags.begin(); it != _kline_tags.end(); it++)
 	{
-		const std::string& key = it->first;
+		const char* key = it->first.c_str();
 		KlineTag& marker = (KlineTag&)it->second;
 
-		StringVector ay = StrUtil::split(key, "#");
-		const char* stdCode = ay[0].c_str();
+		auto idx = StrUtil::findFirst(key, '#');
+
+		std::string stdCode(key, idx);
 
 		if (key == _main_key)
 		{
@@ -834,7 +835,7 @@ bool CtaStraBaseCtx::on_schedule(uint32_t curDate, uint32_t curTime)
 			}
 		}
 
-		WTSSessionInfo* sInfo = _engine->get_session_info(stdCode, true);
+		WTSSessionInfo* sInfo = _engine->get_session_info(stdCode.c_str(), true);
 
 		if (isMainUdt || _kline_tags.empty())
 		{	
@@ -999,8 +1000,8 @@ void CtaStraBaseCtx::stra_enter_long(const char* stdCode, double qty, const char
 		CondList& condList = get_cond_entrusts(stdCode);
 
 		CondEntrust entrust;
-		strcpy(entrust._code, stdCode);
-		strcpy(entrust._usertag, userTag);
+		wt_strcpy(entrust._code, stdCode);
+		wt_strcpy(entrust._usertag, userTag);
 
 		entrust._qty = qty;
 		entrust._field = WCF_NEWPRICE;
@@ -1057,8 +1058,8 @@ void CtaStraBaseCtx::stra_enter_short(const char* stdCode, double qty, const cha
 		CondList& condList = get_cond_entrusts(stdCode);
 
 		CondEntrust entrust;
-		strcpy(entrust._code, stdCode);
-		strcpy(entrust._usertag, userTag);
+		wt_strcpy(entrust._code, stdCode);
+		wt_strcpy(entrust._usertag, userTag);
 
 		entrust._qty = qty;
 		entrust._field = WCF_NEWPRICE;
@@ -1103,8 +1104,8 @@ void CtaStraBaseCtx::stra_exit_long(const char* stdCode, double qty, const char*
 		CondList& condList = get_cond_entrusts(stdCode);
 
 		CondEntrust entrust;
-		strcpy(entrust._code, stdCode);
-		strcpy(entrust._usertag, userTag);
+		wt_strcpy(entrust._code, stdCode);
+		wt_strcpy(entrust._usertag, userTag);
 
 		entrust._qty = qty;
 		entrust._field = WCF_NEWPRICE;
@@ -1155,8 +1156,8 @@ void CtaStraBaseCtx::stra_exit_short(const char* stdCode, double qty, const char
 		CondList& condList = get_cond_entrusts(stdCode);
 
 		CondEntrust entrust;
-		strcpy(entrust._code, stdCode);
-		strcpy(entrust._usertag, userTag);
+		wt_strcpy(entrust._code, stdCode);
+		wt_strcpy(entrust._usertag, userTag);
 
 		entrust._qty = qty;
 		entrust._field = WCF_NEWPRICE;
@@ -1206,8 +1207,8 @@ void CtaStraBaseCtx::stra_set_position(const char* stdCode, double qty, const ch
 		bool isBuy = decimal::gt(qty, curVol);
 
 		CondEntrust entrust;
-		strcpy(entrust._code, stdCode);
-		strcpy(entrust._usertag, userTag);
+		wt_strcpy(entrust._code, stdCode);
+		wt_strcpy(entrust._usertag, userTag);
 
 		entrust._qty = qty;
 		entrust._field = WCF_NEWPRICE;
@@ -1279,7 +1280,7 @@ void CtaStraBaseCtx::do_set_position(const char* stdCode, double qty, const char
 		dInfo._opentime = curTm;
 		dInfo._opentdate = curTDate;
 		dInfo._open_barno = _last_barno;
-		strcpy(dInfo._opentag, userTag);
+		wt_strcpy(dInfo._opentag, userTag);
 		pInfo._details.emplace_back(dInfo);
 		pInfo._last_entertime = curTm;
 
@@ -1364,7 +1365,7 @@ void CtaStraBaseCtx::do_set_position(const char* stdCode, double qty, const char
 			dInfo._opentime = curTm;
 			dInfo._opentdate = curTDate;
 			dInfo._open_barno = _last_barno;
-			strcpy(dInfo._opentag, userTag);
+			wt_strcpy(dInfo._opentag, userTag);
 			pInfo._details.emplace_back(dInfo);
 			pInfo._last_entertime = curTm;
 
