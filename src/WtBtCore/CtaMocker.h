@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * \file CtaMocker.h
  * \project	WonderTrader
  *
@@ -10,12 +10,14 @@
 #pragma once
 #include <sstream>
 #include <atomic>
+#include <unordered_map>
 #include "HisDataReplayer.h"
 
 #include "../Includes/FasterDefs.h"
 #include "../Includes/ICtaStraCtx.h"
 #include "../Includes/CtaStrategyDefs.h"
 #include "../Includes/WTSDataDef.hpp"
+#include "../Includes/WTSCollection.hpp"
 
 #include "../Share/DLLHelper.hpp"
 #include "../Share/StdUtils.hpp"
@@ -30,11 +32,11 @@ USING_NS_WTP;
 class HisDataReplayer;
 class CtaStrategy;
 
-const char COND_ACTION_OL = 0;	//¿ª¶à
-const char COND_ACTION_CL = 1;	//Æ½¶à
-const char COND_ACTION_OS = 2;	//¿ª¿Õ
-const char COND_ACTION_CS = 3;	//Æ½¿Õ
-const char COND_ACTION_SP = 4;	//Ö±½ÓÉèÖÃ²ÖÎ»
+const char COND_ACTION_OL = 0;	//å¼€å¤š
+const char COND_ACTION_CL = 1;	//å¹³å¤š
+const char COND_ACTION_OS = 2;	//å¼€ç©º
+const char COND_ACTION_CS = 3;	//å¹³ç©º
+const char COND_ACTION_SP = 4;	//ç›´æ¥è®¾ç½®ä»“ä½
 
 typedef struct _CondEntrust
 {
@@ -44,7 +46,7 @@ typedef struct _CondEntrust
 
 	double			_qty;
 
-	char			_action;	//0-¿ª¶à,1-Æ½¶à,2-¿ª¿Õ,3-Æ½¿Õ
+	char			_action;	//0-å¼€å¤š,1-å¹³å¤š,2-å¼€ç©º,3-å¹³ç©º
 
 	char			_code[MAX_INSTRUMENT_LENGTH];
 	char			_usertag[32];
@@ -58,17 +60,19 @@ typedef struct _CondEntrust
 } CondEntrust;
 
 typedef std::vector<CondEntrust>	CondList;
-typedef faster_hashmap<std::string, CondList>	CondEntrustMap;
+typedef wt_hashmap<std::string, CondList>	CondEntrustMap;
 
 
 class CtaMocker : public ICtaStraCtx, public IDataSink
 {
 public:
-	CtaMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0, bool persistData = true, EventNotifier* notifier = NULL);
+	CtaMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0, bool persistData = true, EventNotifier* notifier = NULL, bool isRatioSlp = false);
 	virtual ~CtaMocker();
 
 private:
 	void	dump_outputs();
+	void	dump_stradata();
+	void	dump_chartdata();
 	inline void log_signal(const char* stdCode, double target, double price, uint64_t gentime, const char* usertag = "");
 	inline void	log_trade(const char* stdCode, bool isLong, bool isOpen, uint64_t curTime, double price, double qty, const char* userTag = "", double fee = 0.0, uint32_t barNo = 0);
 	inline void	log_close(const char* stdCode, bool isLong, uint64_t openTime, double openpx, uint64_t closeTime, double closepx, double qty,
@@ -76,13 +80,16 @@ private:
 
 	void	update_dyn_profit(const char* stdCode, double price);
 
-	void	do_set_position(const char* stdCode, double qty, double price = 0.0, const char* userTag = "", bool bTriggered = false);
-	void	append_signal(const char* stdCode, double qty, const char* userTag = "", double price = 0.0);
+	void	do_set_position(const char* stdCode, double qty, double price = 0.0, const char* userTag = "");
+	void	append_signal(const char* stdCode, double qty, const char* userTag, double price, uint32_t sigType);
 
 	inline CondList& get_cond_entrusts(const char* stdCode);
 
+	void	proc_tick(const char* stdCode, double last_px, double cur_px);
+
 public:
 	bool	init_cta_factory(WTSVariant* cfg);
+	void	load_incremental_data(const char* lastBacktestName);
 	void	install_hook();
 	void	enable_hook(bool bEnabled = true);
 	bool	step_calc();
@@ -90,7 +97,7 @@ public:
 public:
 	//////////////////////////////////////////////////////////////////////////
 	//IDataSink
-	virtual void	handle_tick(const char* stdCode, WTSTickData* curTick) override;
+	virtual void	handle_tick(const char* stdCode, WTSTickData* curTick, uint32_t pxType = 0) override;
 	virtual void	handle_bar_close(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar) override;
 	virtual void	handle_schedule(uint32_t uDate, uint32_t uTime) override;
 
@@ -98,20 +105,22 @@ public:
 	virtual void	handle_session_begin(uint32_t curTDate) override;
 	virtual void	handle_session_end(uint32_t curTDate) override;
 
+	virtual void	handle_section_end(uint32_t curTDate, uint32_t curTime) override;
+
 	virtual void	handle_replay_done() override;
 
 	//////////////////////////////////////////////////////////////////////////
 	//ICtaStraCtx
 	virtual uint32_t id() { return _context_id; }
 
-	//»Øµ÷º¯Êı
+	//å›è°ƒå‡½æ•°
 	virtual void on_init() override;
 	virtual void on_session_begin(uint32_t curTDate) override;
 	virtual void on_session_end(uint32_t curTDate) override;
 	virtual void on_tick(const char* stdCode, WTSTickData* newTick, bool bEmitStrategy = true) override;
 	virtual void on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar) override;
 	virtual bool on_schedule(uint32_t curDate, uint32_t curTime) override;
-	virtual void enum_position(FuncEnumCtaPosCallBack cb) override;
+	virtual void enum_position(FuncEnumCtaPosCallBack cb, bool bForExecute) override;
 
 	virtual void on_tick_updated(const char* stdCode, WTSTickData* newTick) override;
 	virtual void on_bar_close(const char* stdCode, const char* period, WTSBarStruct* newBar) override;
@@ -119,7 +128,7 @@ public:
 
 
 	//////////////////////////////////////////////////////////////////////////
-	//²ßÂÔ½Ó¿Ú
+	//ç­–ç•¥æ¥å£
 	virtual void stra_enter_long(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual void stra_enter_short(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual void stra_exit_long(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
@@ -128,6 +137,11 @@ public:
 	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") override;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "", double limitprice = 0.0, double stopprice = 0.0) override;
 	virtual double stra_get_price(const char* stdCode) override;
+
+	/*
+	 *	è¯»å–å½“æ—¥ä»·æ ¼
+	 */
+	virtual double stra_get_day_price(const char* stdCode, int flag = 0) override;
 
 	virtual uint32_t stra_get_tdate() override;
 	virtual uint32_t stra_get_date() override;
@@ -139,6 +153,7 @@ public:
 	virtual uint64_t stra_get_last_entertime(const char* stdCode) override;
 	virtual uint64_t stra_get_last_exittime(const char* stdCode) override;
 	virtual double stra_get_last_enterprice(const char* stdCode) override;
+	virtual const char* stra_get_last_entertag(const char* stdCode) override;
 	virtual double stra_get_position_avgpx(const char* stdCode) override;
 	virtual double stra_get_position_profit(const char* stdCode) override;
 
@@ -152,61 +167,105 @@ public:
 	virtual WTSTickData*	stra_get_last_tick(const char* stdCode) override;
 
 	virtual void stra_sub_ticks(const char* stdCode) override;
+	virtual void stra_sub_bar_events(const char* stdCode, const char* period) override;
+
+	/*
+	 *	è·å–åˆ†æœˆåˆçº¦ä»£ç 
+	 */
+	virtual std::string		stra_get_rawcode(const char* stdCode) override;
 
 	virtual void stra_log_info(const char* message) override;
 	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_warn(const char* message) override;
 	virtual void stra_log_error(const char* message) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
-
 	virtual const char* stra_load_user_data(const char* key, const char* defVal = "") override;
+
+	/*
+	 *	è®¾ç½®å›¾è¡¨Kçº¿
+	 */
+	virtual void set_chart_kline(const char* stdCode, const char* period) override;
+
+	/*
+	 *	æ·»åŠ ä¿¡å·
+	 */
+	virtual void add_chart_mark(double price, const char* icon, const char* tag) override;
+
+	/*
+	 *	æ·»åŠ æŒ‡æ ‡
+	 */
+	virtual void register_index(const char* idxName, uint32_t indexType) override;
+
+	/*
+	 *	æ·»åŠ æŒ‡æ ‡çº¿
+	 */
+	virtual bool register_index_line(const char* idxName, const char* lineName, uint32_t lineType) override;
+
+	/*
+	 *	æ·»åŠ åŸºå‡†çº¿
+	 *	@idxName	æŒ‡æ ‡åç§°
+	 *	@lineName	çº¿æ¡åç§°
+	 *	@val		æ•°å€¼
+	 */
+	virtual bool add_index_baseline(const char* idxName, const char* lineName, double val) override;
+
+	/*
+	 *	è®¾ç½®æŒ‡æ ‡å€¼
+	 */
+	virtual bool set_index_value(const char* idxName, const char* lineName, double val) override;
 
 private:
 	template<typename... Args>
 	void log_debug(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_debug(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_debug(buffer);
 	}
 
 	template<typename... Args>
 	void log_info(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_info(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_info(buffer);
 	}
 
 	template<typename... Args>
 	void log_error(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_error(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_error(buffer);
 	}
 
 protected:
 	uint32_t			_context_id;
 	HisDataReplayer*	_replayer;
 
-	uint64_t		_total_calc_time;	//×Ü¼ÆËãÊ±¼ä
-	uint32_t		_emit_times;		//×Ü¼ÆËã´ÎÊı
+	uint64_t		_total_calc_time;	//æ€»è®¡ç®—æ—¶é—´
+	uint32_t		_emit_times;		//æ€»è®¡ç®—æ¬¡æ•°
 
-	int32_t			_slippage;			//³É½»»¬µã
+	int32_t			_slippage;			//æˆäº¤æ»‘ç‚¹ï¼Œ å¦‚æœæ˜¯æ¯”ä¾‹æ»‘ç‚¹ï¼Œåˆ™ä¸ºä¸‡åˆ†æ¯”
+	bool			_ratio_slippage;	//æ˜¯å¦æ¯”ä¾‹æ»‘ç‚¹
 
-	uint32_t		_schedule_times;	//µ÷¶È´ÎÊı
+	uint32_t		_schedule_times;	//è°ƒåº¦æ¬¡æ•°
 
 	std::string		_main_key;
 
+	std::string		_main_code;
+	std::string		_main_period;
+
 	typedef struct _KlineTag
 	{
-		bool			_closed;
+		bool	_closed;
+		bool	_notify;
 
-		_KlineTag() :_closed(false){}
+		_KlineTag() :_closed(false), _notify(false){}
 
 	} KlineTag;
-	typedef faster_hashmap<std::string, KlineTag> KlineTags;
+	typedef wt_hashmap<std::string, KlineTag> KlineTags;
 	KlineTags	_kline_tags;
 
-	typedef faster_hashmap<std::string, double> PriceMap;
+	typedef wt_hashmap<std::string, double> PriceMap;
 	PriceMap		_price_map;
 
 	typedef struct _DetailInfo
@@ -218,6 +277,8 @@ protected:
 		uint32_t	_opentdate;
 		double		_max_profit;
 		double		_max_loss;
+		double		_max_price;
+		double		_min_price;
 		double		_profit;
 		char		_opentag[32];
 		uint32_t	_open_barno;
@@ -245,11 +306,13 @@ protected:
 			_closeprofit = 0;
 			_dynprofit = 0;
 			_frozen = 0;
+			_last_entertime = 0;
+			_last_exittime = 0;
 		}
 
 		inline double valid() const { return _volume - _frozen; }
 	} PosInfo;
-	typedef faster_hashmap<std::string, PosInfo> PositionMap;
+	typedef wt_hashmap<std::string, PosInfo> PositionMap;
 	PositionMap		_pos_map;
 	double	_total_closeprofit;
 
@@ -259,7 +322,7 @@ protected:
 		std::string	_usertag;
 		double		_sigprice;
 		double		_desprice;
-		bool		_triggered;
+		uint32_t	_sigtype;
 		uint64_t	_gentime;
 
 		_SigInfo()
@@ -267,25 +330,28 @@ protected:
 			_volume = 0;
 			_sigprice = 0;
 			_desprice = 0;
-			_triggered = false;
+			_sigtype = 0;
 			_gentime = 0;
 		}
 	}SigInfo;
-	typedef faster_hashmap<std::string, SigInfo>	SignalMap;
+	typedef wt_hashmap<std::string, SigInfo>	SignalMap;
 	SignalMap		_sig_map;
 
 	std::stringstream	_trade_logs;
 	std::stringstream	_close_logs;
 	std::stringstream	_fund_logs;
 	std::stringstream	_sig_logs;
+	std::stringstream	_pos_logs;
+	std::stringstream	_index_logs;
+	std::stringstream	_mark_logs;
 
-	CondEntrustMap	_condtions;
+	CondEntrustMap		_condtions;
 
-	//ÊÇ·ñ´¦ÓÚµ÷¶ÈÖĞµÄ±ê¼Ç
-	bool			_is_in_schedule;	//ÊÇ·ñÔÚ×Ô¶¯µ÷¶ÈÖĞ
+	//æ˜¯å¦å¤„äºè°ƒåº¦ä¸­çš„æ ‡è®°
+	bool			_is_in_schedule;	//æ˜¯å¦åœ¨è‡ªåŠ¨è°ƒåº¦ä¸­
 
-	//ÓÃ»§Êı¾İ
-	typedef faster_hashmap<std::string, std::string> StringHashMap;
+	//ç”¨æˆ·æ•°æ®
+	typedef wt_hashmap<std::string, std::string> StringHashMap;
 	StringHashMap	_user_datas;
 	bool			_ud_modified;
 
@@ -330,16 +396,42 @@ protected:
 
 	StdUniqueMutex	_mtx_calc;
 	StdCondVariable	_cond_calc;
-	bool			_has_hook;		//ÕâÊÇÈËÎª¿ØÖÆÊÇ·ñÆôÓÃ¹³×Ó
-	bool			_hook_valid;	//ÕâÊÇ¸ù¾İÊÇ·ñÊÇÒì²½»Ø²âÄ£Ê½¶øÈ·¶¨¹³×ÓÊÇ·ñ¿ÉÓÃ
-	std::atomic<uint32_t>		_cur_step;	//ÁÙÊ±±äÁ¿£¬ÓÃÓÚ¿ØÖÆ×´Ì¬
+	bool			_has_hook;		//è¿™æ˜¯äººä¸ºæ§åˆ¶æ˜¯å¦å¯ç”¨é’©å­
+	bool			_hook_valid;	//è¿™æ˜¯æ ¹æ®æ˜¯å¦æ˜¯å¼‚æ­¥å›æµ‹æ¨¡å¼è€Œç¡®å®šé’©å­æ˜¯å¦å¯ç”¨
+	std::atomic<uint32_t>		_cur_step;	//ä¸´æ—¶å˜é‡ï¼Œç”¨äºæ§åˆ¶çŠ¶æ€
 
 	bool			_in_backtest;
 	bool			_wait_calc;
 
-	//ÊÇ·ñ¶Ô»Ø²â½á¹û³Ö¾Ã»¯
+	//æ˜¯å¦å¯¹å›æµ‹ç»“æœæŒä¹…åŒ–
 	bool			_persist_data;
 
-	//tick¶©ÔÄÁĞ±í
-	faster_hashset<std::string> _tick_subs;
+	uint32_t		_cur_tdate;
+	uint32_t		_cur_bartime;
+	uint64_t		_last_cond_min;
+
+	//tickè®¢é˜…åˆ—è¡¨
+	wt_hashset<std::string> _tick_subs;
+
+	std::string		_chart_code;
+	std::string		_chart_period;
+
+	typedef struct _ChartLine
+	{
+		std::string	_name;
+		uint32_t	_lineType;
+	} ChartLine;
+
+	typedef struct _ChartIndex
+	{
+		std::string	_name;
+		uint32_t	_indexType;
+		std::unordered_map<std::string, ChartLine> _lines;
+		std::unordered_map<std::string, double> _base_lines;
+	} ChartIndex;
+
+	std::unordered_map<std::string, ChartIndex>	_chart_indice;
+
+	typedef wt_hashmap<std::string, WTSTickStruct>	TickCache;
+	TickCache	_ticks;
 };

@@ -1,11 +1,11 @@
-#include "ExpSelContext.h"
+ï»¿#include "ExpSelContext.h"
 #include "WtRtRunner.h"
 
 extern WtRtRunner& getRunner();
 
 
-ExpSelContext::ExpSelContext(WtSelEngine* env, const char* name)
-	: SelStraBaseCtx(env, name)
+ExpSelContext::ExpSelContext(WtSelEngine* env, const char* name, int32_t slippage)
+	: SelStraBaseCtx(env, name, slippage)
 {
 }
 
@@ -18,7 +18,7 @@ void ExpSelContext::on_init()
 {
 	SelStraBaseCtx::on_init();
 
-	//ÏòÍâ²¿»Øµ÷
+	//å‘å¤–éƒ¨å›è°ƒ
 	getRunner().ctx_on_init(_context_id, ET_SEL);
 }
 

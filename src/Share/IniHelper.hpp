@@ -1,11 +1,11 @@
-/*!
+ï»¿/*!
  * \file IniHelper.hpp
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
  * 
- * \brief IniÎÄ¼þ¸¨ÖúÀà,ÀûÓÃboostµÄproperty_treeÀ´ÊµÏÖ,¿ÉÒÔ¿çÆ½Ì¨Ê¹ÓÃ
+ * \brief Iniæ–‡ä»¶è¾…åŠ©ç±»,åˆ©ç”¨boostçš„property_treeæ¥å®žçŽ°,å¯ä»¥è·¨å¹³å°ä½¿ç”¨
  */
 #pragma once
 
@@ -137,7 +137,7 @@ public:
 			aySection.emplace_back(it->first.data());
 		}
 
-		return _root.size();
+		return (int)_root.size();
 	}
 
 	int			readSecKeyArray(const char* szSec, FieldArray &ayKey)
@@ -150,7 +150,7 @@ public:
 				ayKey.emplace_back(it->first.data());
 			}
 
-			return _sec.size();
+			return (int)_sec.size();
 		}
 		catch (...)
 		{
@@ -170,7 +170,7 @@ public:
 				ayVal.emplace_back(it->second.data());
 			}
 
-			return _sec.size();
+			return (int)_sec.size();
 		}
 		catch (...)
 		{

@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * \file WtBtRunner.cpp
  * \project	WonderTrader
  *
@@ -28,7 +28,7 @@
 #ifdef _MSC_VER
 #include "../Common/mdump.h"
 #include <boost/filesystem.hpp>
- //Õâ¸öÖ÷ÒªÊÇ¸øMiniDumperÓÃµÄ
+ //è¿™ä¸ªä¸»è¦æ˜¯ç»™MiniDumperç”¨çš„
 const char* getModuleName()
 {
 	static char MODULE_NAME[250] = { 0 };
@@ -53,6 +53,7 @@ WtBtRunner::WtBtRunner()
 	, _cb_cta_calc_done(NULL)
 	, _cb_cta_bar(NULL)
 	, _cb_cta_sessevt(NULL)
+	, _cb_cta_cond_trigger(NULL)
 
 	, _cb_sel_init(NULL)
 	, _cb_sel_tick(NULL)
@@ -84,14 +85,9 @@ WtBtRunner::WtBtRunner()
 	, _running(false)
 	, _async(false)
 {
-#if _WIN32
-#pragma message("Signal hooks disabled in WIN32")
-#else
-#pragma message("Signal hooks enabled in UNIX")
 	install_signal_hooks([](const char* message) {
 		WTSLogger::error(message);
 	});
-#endif
 }
 
 
@@ -218,8 +214,8 @@ void WtBtRunner::feedRawTicks(WTSTickStruct* ticks, uint32_t count)
 	_feeder_ticks(_feed_obj, ticks, count);
 }
 
-void WtBtRunner::registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, 
-	FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone/* = NULL*/)
+void WtBtRunner::registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, FuncStraBarCallback cbBar, 
+	FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone /* = NULL */, FuncStraCondTriggerCallback cbCondTrigger /* = NULL */)
 {
 	_cb_cta_init = cbInit;
 	_cb_cta_tick = cbTick;
@@ -228,6 +224,7 @@ void WtBtRunner::registerCtaCallbacks(FuncStraInitCallback cbInit, FuncStraTickC
 	_cb_cta_sessevt = cbSessEvt;
 
 	_cb_cta_calc_done = cbCalcDone;
+	_cb_cta_cond_trigger = cbCondTrigger;
 
 	WTSLogger::info("Callbacks of CTA engine registration done");
 }
@@ -268,7 +265,8 @@ void WtBtRunner::registerHftCallbacks(FuncStraInitCallback cbInit, FuncStraTickC
 	WTSLogger::info("Callbacks of HFT engine registration done");
 }
 
-uint32_t WtBtRunner::initCtaMocker(const char* name, int32_t slippage /* = 0 */, bool hook /* = false */, bool persistData /* = true */)
+uint32_t WtBtRunner::initCtaMocker(const char* name, int32_t slippage /* = 0 */, bool hook /* = false */, 
+	bool persistData /* = true */, bool bIncremental /* = false */, bool isRatioSlp /* = false */)
 {
 	if(_cta_mocker)
 	{
@@ -276,7 +274,11 @@ uint32_t WtBtRunner::initCtaMocker(const char* name, int32_t slippage /* = 0 */,
 		_cta_mocker = NULL;
 	}
 
-	_cta_mocker = new ExpCtaMocker(&_replayer, name, slippage, persistData, &_notifier);
+	_cta_mocker = new ExpCtaMocker(&_replayer, name, slippage, persistData, &_notifier, isRatioSlp);
+	if (bIncremental)
+	{
+		_cta_mocker->load_incremental_data(name);
+	}
 	if(hook) _cta_mocker->install_hook();
 	_replayer.register_sink(_cta_mocker, name);
 	return _cta_mocker->id();
@@ -296,7 +298,8 @@ uint32_t WtBtRunner::initHftMocker(const char* name, bool hook/* = false*/)
 	return _hft_mocker->id();
 }
 
-uint32_t WtBtRunner::initSelMocker(const char* name, uint32_t date, uint32_t time, const char* period, const char* trdtpl /* = "CHINA" */, const char* session /* = "TRADING" */, int32_t slippage/* = 0*/)
+uint32_t WtBtRunner::initSelMocker(const char* name, uint32_t date, uint32_t time, const char* period, 
+	const char* trdtpl /* = "CHINA" */, const char* session /* = "TRADING" */, int32_t slippage /* = 0 */, bool isRatioSlp /* = false */)
 {
 	if (_sel_mocker)
 	{
@@ -304,7 +307,7 @@ uint32_t WtBtRunner::initSelMocker(const char* name, uint32_t date, uint32_t tim
 		_sel_mocker = NULL;
 	}
 
-	_sel_mocker = new ExpSelMocker(&_replayer, name, slippage);
+	_sel_mocker = new ExpSelMocker(&_replayer, name, slippage, isRatioSlp);
 	_replayer.register_sink(_sel_mocker, name);
 
 	_replayer.register_task(_sel_mocker->id(), date, time, period, trdtpl, session);
@@ -352,6 +355,16 @@ void WtBtRunner::ctx_on_init(uint32_t id, EngineType eType/*= ET_CTA*/)
 	case ET_CTA: if (_cb_cta_init) _cb_cta_init(id); break;
 	case ET_HFT: if (_cb_hft_init) _cb_hft_init(id); break;
 	case ET_SEL: if (_cb_sel_init) _cb_sel_init(id); break;
+	default:
+		break;
+	}
+}
+
+void WtBtRunner::ctx_on_cond_triggered(uint32_t id, const char* stdCode, double target, double price, const char* usertag, EngineType eType /* = ET_CTA */)
+{
+	switch (eType)
+	{
+	case ET_CTA: if (_cb_cta_cond_trigger) _cb_cta_cond_trigger(id, stdCode, target, price, usertag); break;
 	default:
 		break;
 	}
@@ -443,21 +456,21 @@ void WtBtRunner::config(const char* cfgFile, bool isFile /* = true */)
 		return;
 	}
 
-	WTSVariant* cfg = isFile ? WTSCfgLoader::load_from_file(cfgFile, true) : WTSCfgLoader::load_from_content(cfgFile, false, true);
-	if(cfg == NULL)
+	_cfg = isFile ? WTSCfgLoader::load_from_file(cfgFile) : WTSCfgLoader::load_from_content(cfgFile, false);
+	if(_cfg == NULL)
 	{
 		WTSLogger::error("Loading config failed");
 		return;
 	}
 
-	//³õÊ¼»¯ÊÂ¼þÍÆËÍÆ÷
-	initEvtNotifier(cfg->get("notifier"));
+	//åˆå§‹åŒ–äº‹ä»¶æŽ¨é€å™¨
+	initEvtNotifier(_cfg->get("notifier"));
 
-	_replayer.init(cfg->get("replayer"), &_notifier, _ext_fnl_bar_loader != NULL ? this : NULL);
+	_replayer.init(_cfg->get("replayer"), &_notifier, _ext_fnl_bar_loader != NULL ? this : NULL);
 
-	WTSVariant* cfgEnv = cfg->get("env");
+	WTSVariant* cfgEnv = _cfg->get("env");
 	const char* mode = cfgEnv->getCString("mocker");
-	WTSVariant* cfgMode = cfg->get(mode);
+	WTSVariant* cfgMode = _cfg->get(mode);
 	if (strcmp(mode, "cta") == 0 && cfgMode)
 	{
 		const char* name = cfgMode->getCString("name");
@@ -483,7 +496,7 @@ void WtBtRunner::config(const char* cfgFile, bool isFile /* = true */)
 
 		WTSVariant* cfgTask = cfgMode->get("task");
 		if(cfgTask)
-			_replayer.register_task(_sel_mocker->id(), cfgTask->getUInt32("date"), cfgTask->getUInt32("time"), 
+			_replayer.register_task(_sel_mocker->id(), cfgTask->getUInt32("date"), cfgTask->getUInt32("time"),
 				cfgTask->getCString("period"), cfgTask->getCString("trdtpl"), cfgTask->getCString("session"));
 	}
 	else if (strcmp(mode, "exec") == 0 && cfgMode)
@@ -502,7 +515,7 @@ void WtBtRunner::run(bool bNeedDump /* = false */, bool bAsync /* = false */)
 
 	_async = bAsync;
 
-	WTSLogger::info("Backtesting will run in %s mode", _async ? "async" : "sync");
+	WTSLogger::info("Backtesting will run in {} mode", _async ? "async" : "sync");
 
 	if (_cta_mocker)
 		_cta_mocker->enable_hook(_async);
@@ -510,27 +523,30 @@ void WtBtRunner::run(bool bNeedDump /* = false */, bool bAsync /* = false */)
 		_hft_mocker->enable_hook(_async);
 
 	_replayer.prepare();
-
-	_worker.reset(new StdThread([this, bNeedDump]() {
-		_running = true;
-		try
-		{
-			_replayer.run(bNeedDump);
-		}
-		catch (...)
-		{
-			WTSLogger::error("Exception raised while worker running");
-			//print_stack_trace([](const char* message) {
-			//	WTSLogger::error(message);
-			//});
-		}
-		WTSLogger::debug("Worker thread of backtest finished");
-		_running = false;
-
-	}));
-
 	if (!bAsync)
-		_worker->join();
+	{
+		_replayer.run(bNeedDump);
+	}
+	else
+	{
+		_worker.reset(new StdThread([this, bNeedDump]() {
+			_running = true;
+			try
+			{
+				_replayer.run(bNeedDump);
+			}
+			catch (...)
+			{
+				WTSLogger::error("Exception raised while worker running");
+				//print_stack_trace([](const char* message) {
+				//	WTSLogger::error(message);
+				//});
+			}
+			WTSLogger::debug("Worker thread of backtest finished");
+			_running = false;
+
+		}));
+	}
 }
 
 void WtBtRunner::stop()
@@ -577,19 +593,26 @@ void WtBtRunner::set_time_range(WtUInt64 stime, WtUInt64 etime)
 {
 	_replayer.set_time_range(stime, etime);
 
-	WTSLogger::info_f("Backtest time range is set to be [{},{}] mannually", stime, etime);
+	WTSLogger::info("Backtest time range is set to be [{},{}] mannually", stime, etime);
 }
 
 void WtBtRunner::enable_tick(bool bEnabled /* = true */)
 {
 	_replayer.enable_tick(bEnabled);
 
-	WTSLogger::info("Tick data replaying is %s", bEnabled ? "enabled" : "disabled");
+	WTSLogger::info("Tick data replaying is {}", bEnabled ? "enabled" : "disabled");
 }
 
 void WtBtRunner::clear_cache()
 {
 	_replayer.clear_cache();
+}
+
+const char* WtBtRunner::get_raw_stdcode(const char* stdCode)
+{
+	static thread_local std::string s;
+	s = _replayer.get_rawcode(stdCode);
+	return s.c_str();
 }
 
 const char* LOG_TAGS[] = {

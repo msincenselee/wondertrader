@@ -1,4 +1,4 @@
-/*!
+Ôªø/*!
  * /file WtUftRunner.h
  * /project	WonderTrader
  *
@@ -13,12 +13,14 @@
 
 #include "../Includes/ILogHandler.h"
 
+#include "../WtUftCore/EventNotifier.h"
 #include "../WtUftCore/UftStrategyMgr.h"
 
 #include "../WtUftCore/WtUftEngine.h"
 #include "../WtUftCore/TraderAdapter.h"
 #include "../WtUftCore/ParserAdapter.h"
 #include "../WtUftCore/WtUftDtMgr.h"
+#include "../WtUftCore/ActionPolicyMgr.h"
 
 #include "../WTSTools/WTSHotMgr.h"
 #include "../WTSTools/WTSBaseDataMgr.h"
@@ -36,12 +38,9 @@ public:
 	~WtUftRunner();
 
 public:
-	/*
-	 *	≥ı ºªØ
-	 */
-	bool init();
+	void init(const std::string& filename);
 
-	bool config();
+	bool config(const std::string& filename);
 
 	void run(bool bAsync = false);
 
@@ -50,7 +49,7 @@ private:
 	bool initParsers(WTSVariant* cfgParser);
 	bool initDataMgr();
 	bool initUftStrategies();
-
+	bool initEvtNotifier();
 	bool initEngine();
 
 //////////////////////////////////////////////////////////////////////////
@@ -68,8 +67,12 @@ private:
 	WtUftDtMgr			_data_mgr;
 
 	WTSBaseDataMgr		_bd_mgr;
-	WTSHotMgr			_hot_mgr;
+	EventNotifier		_notifier;
 
 	UftStrategyMgr		_uft_stra_mgr;
+
+	ActionPolicyMgr		_act_policy;
+
+	bool				_to_exit;
 };
 

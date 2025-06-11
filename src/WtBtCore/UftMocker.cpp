@@ -28,7 +28,7 @@ const char* OFFSET_NAMES[] =
 {
 	"OPEN",
 	"CLOSE",
-	"CLOSETODAY"
+	"CLOSET"
 };
 
 extern std::vector<uint32_t> splitVolume(uint32_t vol);
@@ -46,10 +46,9 @@ UftMocker::UftMocker(HisDataReplayer* replayer, const char* name)
 	: IUftStraCtx(name)
 	, _replayer(replayer)
 	, _strategy(NULL)
-	, _thrd(NULL)
-	, _stopped(false)
 	, _use_newpx(false)
 	, _error_rate(0)
+	, _match_this_tick(false)
 {
 	_context_id = makeUftCtxId();
 }
@@ -95,35 +94,35 @@ void UftMocker::postTask(Task task)
 		return;
 	}
 
-	if(_thrd == NULL)
-	{
-		_thrd.reset(new std::thread([this](){
-			while (!_stopped)
-			{
-				if(_tasks.empty())
-				{
-					std::this_thread::sleep_for(std::chrono::milliseconds(1));
-					continue;
-				}
+	//if(_thrd == NULL)
+	//{
+	//	_thrd.reset(new std::thread([this](){
+	//		while (!_stopped)
+	//		{
+	//			if(_tasks.empty())
+	//			{
+	//				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	//				continue;
+	//			}
 
-				_mtx_control.lock();
+	//			_mtx_control.lock();
 
-				while(!_tasks.empty())
-				{
-					Task& task = _tasks.front();
+	//			while(!_tasks.empty())
+	//			{
+	//				Task& task = _tasks.front();
 
-					task();
+	//				task();
 
-					{
-						std::unique_lock<std::mutex> lck(_mtx);
-						_tasks.pop();
-					}
-				}
+	//				{
+	//					std::unique_lock<std::mutex> lck(_mtx);
+	//					_tasks.pop();
+	//				}
+	//			}
 
-				_mtx_control.unlock();
-			}
-		}));
-	}
+	//			_mtx_control.unlock();
+	//		}
+	//	}));
+	//}
 }
 
 bool UftMocker::init_uft_factory(WTSVariant* cfg)
@@ -135,6 +134,9 @@ bool UftMocker::init_uft_factory(WTSVariant* cfg)
 	
 	_use_newpx = cfg->getBoolean("use_newpx");
 	_error_rate = cfg->getUInt32("error_rate");
+	_match_this_tick = cfg->getBoolean("match_this_tick");
+
+	log_info("UFT match params: use_newpx-{}, error_rate-{}, match_this_tick-{}", _use_newpx, _error_rate, _match_this_tick);
 
 	DllHandle hInst = DLLHelper::load_library(module);
 	if (hInst == NULL)
@@ -162,7 +164,7 @@ bool UftMocker::init_uft_factory(WTSVariant* cfg)
 	return true;
 }
 
-void UftMocker::handle_tick(const char* stdCode, WTSTickData* curTick)
+void UftMocker::handle_tick(const char* stdCode, WTSTickData* curTick, uint32_t pxType)
 {
 	on_tick(stdCode, curTick);
 }
@@ -229,28 +231,63 @@ void UftMocker::on_tick(const char* stdCode, WTSTickData* newTick)
 	}
 
 	update_dyn_profit(stdCode, newTick);
-
-	procTask();
 	
-	if (!_orders.empty())
+	//如果开启了同tick撮合，则先触发策略的ontick，再处理订单
+	//如果没开启同tick撮合，则先处理订单，再触发策略的ontick
+	if(_match_this_tick)
 	{
-		OrderIDs ids;
-		for (auto it = _orders.begin(); it != _orders.end(); it++)
-		{
-			uint32_t localid = it->first;
-			bool bNeedErase = procOrder(localid);
-			if (bNeedErase)
-				ids.emplace_back(localid);
-		}
+		on_tick_updated(stdCode, newTick);
 
-		for(uint32_t localid : ids)
+		procTask();
+
+		if (!_orders.empty())
 		{
-			auto it = _orders.find(localid);
-			_orders.erase(it);
+			OrderIDs ids;
+			for (auto it = _orders.begin(); it != _orders.end(); it++)
+			{
+				uint32_t localid = it->first;
+				ids.emplace_back(localid);
+			}
+
+			OrderIDs to_erase;
+			for (uint32_t localid : ids)
+			{
+				bool bNeedErase = procOrder(localid);
+				if (bNeedErase)
+					to_erase.emplace_back(localid);
+			}
+
+			for (uint32_t localid : to_erase)
+			{
+				auto it = _orders.find(localid);
+				_orders.erase(it);
+			}
 		}
 	}
+	else
+	{
+		if (!_orders.empty())
+		{
+			OrderIDs ids;
+			for (auto it = _orders.begin(); it != _orders.end(); it++)
+			{
+				uint32_t localid = it->first;
+				bool bNeedErase = procOrder(localid);
+				if (bNeedErase)
+					ids.emplace_back(localid);
+			}
 
-	on_tick_updated(stdCode, newTick);
+			for (uint32_t localid : ids)
+			{
+				auto it = _orders.find(localid);
+				_orders.erase(it);
+			}
+		}
+
+		on_tick_updated(stdCode, newTick);
+
+		procTask();
+	}
 }
 
 void UftMocker::on_tick_updated(const char* stdCode, WTSTickData* newTick)
@@ -316,7 +353,7 @@ void UftMocker::on_session_begin(uint32_t curTDate)
 		PosItem& pInfo = (PosItem&)it.second;
 		if (!decimal::eq(pInfo.frozen(), 0))
 		{
-			log_debug("%.0f of %s frozen released on %u", pInfo.frozen(), stdCode, curTDate);
+			log_debug("{} frozen of {} released on {}", pInfo.frozen(), stdCode, curTDate);
 			pInfo._prevol += pInfo._newvol;
 			pInfo._preavail = pInfo._prevol;
 
@@ -324,10 +361,14 @@ void UftMocker::on_session_begin(uint32_t curTDate)
 			pInfo._newavail = 0;
 		}
 	}
+
+	_strategy->on_session_begin(this, curTDate);
 }
 
 void UftMocker::on_session_end(uint32_t curTDate)
 {
+	_strategy->on_session_end(this, curTDate);
+
 	uint32_t curDate = curTDate;// _replayer->get_trading_date();
 
 	double total_profit = 0;
@@ -339,9 +380,15 @@ void UftMocker::on_session_end(uint32_t curTDate)
 		const PosInfo& pInfo = it->second;
 		total_profit += pInfo.closeprofit();
 		total_dynprofit += pInfo.dynprofit();
+
+		if (!decimal::eq(pInfo._long.volume(), 0.0))
+			_pos_logs << fmt::format("{},{},LONG,{},{:.2f},{:.2f}\n", curTDate, stdCode, pInfo._long.volume(), pInfo._long._closeprofit, pInfo._long._dynprofit);
+
+		if (!decimal::eq(pInfo._short.volume(), 0.0))
+			_pos_logs << fmt::format("{},{},LONG,{},{:.2f},{:.2f}\n", curTDate, stdCode, pInfo._short.volume(), pInfo._short._closeprofit, pInfo._short._dynprofit);
 	}
 
-	_fund_logs << StrUtil::printf("%d,%.2f,%.2f,%.2f,%.2f\n", curDate,
+	_fund_logs << fmt::format("{},{:.2f},{:.2f},{:.2f},{:.2f}\n", curDate,
 		_fund_info._total_profit, _fund_info._total_dynprofit,
 		_fund_info._total_profit + _fund_info._total_dynprofit - _fund_info._total_fees, _fund_info._total_fees);
 }
@@ -392,8 +439,8 @@ bool UftMocker::stra_cancel(uint32_t localid)
 			}
 		}
 
+		log_debug("Order {} canceled, action: {} {} @ {}({})", ordInfo._localid, OFFSET_NAMES[ordInfo._offset], ordInfo._isLong?"long":"short", ordInfo._total, ordInfo._left);
 		ordInfo._left = 0;
-
 		on_order(localid, ordInfo._code, ordInfo._isLong, ordInfo._offset, ordInfo._total, ordInfo._left, ordInfo._price, true);
 		_orders.erase(it);
 	});
@@ -422,7 +469,7 @@ OrderIDs UftMocker::stra_buy(const char* stdCode, double price, double qty, int 
 	WTSCommodityInfo* commInfo = _replayer->get_commodity_info(stdCode);
 	if (commInfo == NULL)
 	{
-		log_error("Cannot find corresponding commodity info of %s", stdCode);
+		log_error("Cannot find corresponding commodity info of {}", stdCode);
 		return OrderIDs();
 	}
 
@@ -484,7 +531,7 @@ OrderIDs UftMocker::stra_sell(const char* stdCode, double price, double qty, int
 	WTSCommodityInfo* commInfo = _replayer->get_commodity_info(stdCode);
 	if (commInfo == NULL)
 	{
-		log_error("Cannot find corresponding commodity info of %s", stdCode);
+		log_error("Cannot find corresponding commodity info of {}", stdCode);
 		return OrderIDs();
 	}
 
@@ -547,7 +594,7 @@ uint32_t UftMocker::stra_enter_long(const char* stdCode, double price, double qt
 	WTSCommodityInfo* commInfo = _replayer->get_commodity_info(stdCode);
 	if (commInfo == NULL)
 	{
-		log_error("Cannot find corresponding commodity info of %s", stdCode);
+		log_error("Cannot find corresponding commodity info of {}", stdCode);
 		return 0;
 	}
 
@@ -576,6 +623,7 @@ uint32_t UftMocker::stra_enter_long(const char* stdCode, double price, double qt
 
 	postTask([this, localid]() {
 		const OrderInfo& ordInfo = _orders[localid];
+		log_debug("order placed: open long of {} @ {} by {}", ordInfo._code, ordInfo._price, ordInfo._total);
 		on_entrust(localid, ordInfo._code, true, "entrust success");
 	});
 
@@ -587,7 +635,7 @@ uint32_t UftMocker::stra_enter_short(const char* stdCode, double price, double q
 	WTSCommodityInfo* commInfo = _replayer->get_commodity_info(stdCode);
 	if (commInfo == NULL)
 	{
-		log_error("Cannot find corresponding commodity info of %s", stdCode);
+		log_error("Cannot find corresponding commodity info of {}", stdCode);
 		return 0;
 	}
 
@@ -616,6 +664,7 @@ uint32_t UftMocker::stra_enter_short(const char* stdCode, double price, double q
 
 	postTask([this, localid]() {
 		const OrderInfo& ordInfo = _orders[localid];
+		log_debug("order placed: open short of {} @ {} by {}", ordInfo._code, ordInfo._price, ordInfo._total);
 		on_entrust(localid, ordInfo._code, true, "entrust success");
 	});
 
@@ -647,7 +696,7 @@ uint32_t UftMocker::stra_exit_long(const char* stdCode, double price, double qty
 		double valid = isToday ? pItem._newavail : pItem._preavail;
 		if (decimal::lt(valid, qty))
 		{
-			log_error("Entrust error: no enough available position");
+			log_error("Entrust error: no enough available {} position", isToday?"new":"old");
 			return 0;
 		}
 
@@ -676,6 +725,7 @@ uint32_t UftMocker::stra_exit_long(const char* stdCode, double price, double qty
 
 	postTask([this, localid]() {
 		const OrderInfo& ordInfo = _orders[localid];
+		log_debug("order placed: {} long of {} @ {} by {}", OFFSET_NAMES[ordInfo._offset], ordInfo._code, ordInfo._price, ordInfo._total);
 		on_entrust(localid, ordInfo._code, true, "entrust success");
 	});
 
@@ -707,7 +757,7 @@ uint32_t UftMocker::stra_exit_short(const char* stdCode, double price, double qt
 		double valid = isToday ? pItem._newavail : pItem._preavail;
 		if (decimal::lt(valid, qty))
 		{
-			log_error("Entrust error: no enough available position");
+			log_error("Entrust error: no enough available {} position", isToday ? "new" : "old");
 			return 0;
 		}
 
@@ -736,6 +786,7 @@ uint32_t UftMocker::stra_exit_short(const char* stdCode, double price, double qt
 
 	postTask([this, localid]() {
 		const OrderInfo& ordInfo = _orders[localid];
+		log_debug("order placed: {} short of {} @ {} by {}", OFFSET_NAMES[ordInfo._offset], ordInfo._code, ordInfo._price, ordInfo._total);
 		on_entrust(localid, ordInfo._code, true, "entrust success");
 	});
 
@@ -836,14 +887,13 @@ bool UftMocker::procOrder(uint32_t localid)
 	if (it == _orders.end())
 		return false;
 
-	StdLocker<StdRecurMutex> lock(_mtx_ords);
-	OrderInfo& ordInfo = (OrderInfo&)it->second;
+	OrderInfo ordInfo = (OrderInfo&)it->second;
 
 	//第一步,如果在撤单概率中,则执行撤单
 	if(_error_rate>0 && genRand(10000)<=_error_rate)
 	{
 		on_order(localid, ordInfo._code, ordInfo._isLong, ordInfo._offset, ordInfo._total, ordInfo._left, ordInfo._price, true);
-		log_info("Random error order: %u", localid);
+		log_info("Random error order: {}", localid);
 		return true;
 	}
 	else
@@ -899,11 +949,6 @@ bool UftMocker::procOrder(uint32_t localid)
 
 		ordInfo._left -= curQty;
 		on_order(localid, ordInfo._code, ordInfo._isLong, ordInfo._offset, ordInfo._total, ordInfo._left, ordInfo._price, false);
-
-		double curPos = stra_get_position(ordInfo._code);
-
-		_sig_logs << _replayer->get_date() << "." << _replayer->get_raw_time() << "." << _replayer->get_secs() << ","
-			<< (ordInfo._isLong ? "+" : "-") << curQty << "," << curPos << "," << curPx << std::endl;
 	}
 
 	//if(ordInfo._left == 0)
@@ -922,19 +967,13 @@ WTSCommodityInfo* UftMocker::stra_get_comminfo(const char* stdCode)
 
 WTSKlineSlice* UftMocker::stra_get_bars(const char* stdCode, const char* period, uint32_t count)
 {
-	std::string basePeriod = "";
+	thread_local static char basePeriod[2] = { 0 };
+	basePeriod[0] = period[0];
 	uint32_t times = 1;
 	if (strlen(period) > 1)
-	{
-		basePeriod.append(period, 1);
 		times = strtoul(period + 1, NULL, 10);
-	}
-	else
-	{
-		basePeriod = period;
-	}
 
-	return _replayer->get_kline_slice(stdCode, basePeriod.c_str(), count, times);
+	return _replayer->get_kline_slice(stdCode, basePeriod, count, times);
 }
 
 WTSTickSlice* UftMocker::stra_get_ticks(const char* stdCode, uint32_t count)
@@ -971,6 +1010,31 @@ double UftMocker::stra_get_position(const char* stdCode, bool bOnlyValid /* = fa
 		return bOnlyValid ? posInfo._short.valid() : posInfo._short.volume();
 	else
 		return bOnlyValid ? (posInfo._long.valid() - posInfo._short.valid()) : (posInfo._long.volume() - posInfo._short.volume());
+}
+
+double UftMocker::stra_get_local_position(const char* stdCode)
+{
+	const PosInfo& posInfo = _pos_map[stdCode];
+	return posInfo._long.volume() - posInfo._short.volume();
+}
+
+double UftMocker::stra_enum_position(const char* stdCode)
+{
+	uint32_t tdate = _replayer->get_trading_date();
+	double ret = 0;
+	bool bAll = (strlen(stdCode) == 0);
+	for (auto it = _pos_map.begin(); it != _pos_map.end(); it++)
+	{
+		if (!bAll && strcmp(it->first.c_str(), stdCode) != 0)
+			continue;
+
+		const PosInfo& pInfo = it->second;
+		_strategy->on_position(this, stdCode, true, pInfo._long._prevol, pInfo._long._preavail, pInfo._long._newvol, pInfo._long._newavail);
+		_strategy->on_position(this, stdCode, false, pInfo._short._prevol, pInfo._short._preavail, pInfo._short._newvol, pInfo._short._newavail);
+		ret += pInfo._long.volume() + pInfo._short.volume();
+	}
+
+	return ret;
 }
 
 double UftMocker::stra_get_price(const char* stdCode)
@@ -1059,10 +1123,9 @@ void UftMocker::dump_outputs()
 	content += _fund_logs.str();
 	StdFile::write_file_content(filename.c_str(), (void*)content.c_str(), content.size());
 
-
-	filename = folder + "signals.csv";
-	content = "time, action, position, price\n";
-	content += _sig_logs.str();
+	filename = folder + "positions.csv";
+	content = "date,code,direct,volume,closeprofit,dynprofit\n";
+	if (!_pos_logs.str().empty()) content += _pos_logs.str();
 	StdFile::write_file_content(filename.c_str(), (void*)content.c_str(), content.size());
 }
 
@@ -1089,11 +1152,11 @@ void UftMocker::update_position(const char* stdCode, bool isLong, uint32_t offse
 	if (decimal::eq(price, 0.0))
 		curPx = _price_map[stdCode];
 
+	const char* pos_dir = isLong ? "long" : "short";
+
 	//获取时间
 	uint64_t curTm = (uint64_t)_replayer->get_date() * 1000000000 + (uint64_t)_replayer->get_min_time()*100000 + _replayer->get_secs();
 	uint32_t curTDate = _replayer->get_trading_date();
-
-	log_info("[%04u.%05u] %s position updated: %s %0.f", _replayer->get_min_time(), _replayer->get_secs(), stdCode, OFFSET_NAMES[offset], qty);
 
 	WTSCommodityInfo* commInfo = _replayer->get_commodity_info(stdCode);
 	if (commInfo == NULL)
@@ -1110,7 +1173,7 @@ void UftMocker::update_position(const char* stdCode, bool isLong, uint32_t offse
 		if (commInfo->isT1())
 		{
 			//ASSERT(diff>0);
-			log_debug("%s frozen position up to %.0f", stdCode, pItem.frozen());
+			log_debug("{} position of {} frozen up to {}", pos_dir, stdCode, pItem.frozen());
 		}
 		else
 		{
@@ -1237,6 +1300,8 @@ void UftMocker::update_position(const char* stdCode, bool isLong, uint32_t offse
 		if (sit != pItem._details.end())
 			pItem._details.erase(sit, eit);
 	}
+
+	log_info("[{:04d}.{:05d}] {} position of {} updated: {} {} to {}", _replayer->get_min_time(), _replayer->get_secs(), pos_dir, stdCode, OFFSET_NAMES[offset], qty, pItem.volume());
 
 	double dynprofit = 0;
 	for (const DetailInfo& dInfo : pItem._details)

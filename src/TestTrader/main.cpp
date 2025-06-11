@@ -1,4 +1,4 @@
-#include <iostream>
+ï»¿#include <iostream>
 #include <boost/filesystem.hpp>
 
 #include "../Includes/ITraderApi.h"
@@ -11,6 +11,7 @@
 #include "../Share/StdUtils.hpp"
 #include "../Share/DLLHelper.hpp"
 #include "../Share/StrUtil.hpp"
+#include "../Share/charconv.hpp"
 
 #include "../WTSTools/WTSBaseDataMgr.h"
 #include "../WTSTools/WTSLogger.h"
@@ -23,6 +24,18 @@ StdCondVariable	g_condOpt;
 bool		g_exitNow = false;
 bool		g_riskAct = false;
 std::set<std::string>	g_blkList;
+
+template<typename... Args>
+inline void encoding_print(const char* format, const Args& ...args)
+{
+	fmt::print(format, args...);
+	//printf(fmtutil::format(format, args...));
+//#ifdef _MSC_VER
+//	printf(UTF8toChar(s).c_str());
+//#else
+//	printf(s.c_str());
+//#endif
+}
 
 USING_NS_WTP;
 
@@ -71,7 +84,7 @@ public:
 		DllHandle hInst = DLLHelper::load_library(moduleName);
 		if (hInst == NULL)
 		{
-			WTSLogger::info("Loading module %s failed", moduleName);
+			WTSLogger::info("Loading module {} failed", moduleName);
 			return false;
 		}
 
@@ -128,7 +141,7 @@ public:
 	bool qrySettle()
 	{
 		uint32_t uDate = TimeUtils::getNextDate(TimeUtils::getCurDate(), -1);
-		WTSLogger::info("Querying settlement info on %u...", uDate);
+		WTSLogger::info("Querying settlement info on {}...", uDate);
 		m_pTraderApi->querySettlement(uDate);
 
 		return true;
@@ -145,40 +158,40 @@ public:
 
 		for (;;)
 		{
-			printf("ÇëÊäÈëÆ·ÖÖ´úÂë: ");
+			encoding_print("åˆçº¦ä»£ç : ");
 			std::cin >> code;
 
-			printf("ÇëÊäÈë½»Ò×Ëù´úÂë: ");
+			encoding_print("äº¤æ˜“æ‰€ä»£ç : ");
 			std::cin >> exchg;
 
-			printf("ÇëÊäÈëÎ¯ÍĞ¼Û¸ñ: ");
+			encoding_print("å§”æ‰˜ä»·æ ¼: ");
 			std::cin >> price;
 
-			printf("ÇëÊäÈëÊıÁ¿: ");
+			encoding_print("å§”æ‰˜æ•°é‡: ");
 			std::cin >> qty;
 
 			if(isNet)
 			{
-				printf("ÇëÊäÈë·½Ïò,0-ÂòÈë,1-Âô³ö: ");
+				encoding_print("æ–¹å‘: 0-ä¹°, 1-å–: ");
 				std::cin >> bs;
 				if (bs != 0 && bs != 1)
 					continue;
 
-				printf("Æ·ÖÖ: %s.%s,¼Û¸ñ: %f,ÊıÁ¿: %f,·½Ïò: %s,È·ÈÏy/n? ", exchg, code, price, qty, bs == 0 ? "ÂòÈë" : "Âô³ö");
+				encoding_print("åˆçº¦: {}.{},ä»·æ ¼: {},æ•°é‡: {},æ–¹å‘: {},ç¡®è®¤(y/n)? ", exchg, code, price, qty, bs == 0 ? "ä¹°" : "å–");
 			}
 			else
 			{
-				printf("ÇëÊäÈë·½Ïò,0-×ö¶à,1-×ö¿Õ: ");
+				encoding_print("æ–¹å‘: 0-å¤š, 1-ç©º: ");
 				std::cin >> bs;
 				if (bs != 0 && bs != 1)
 					continue;
 
-				printf("ÇëÊäÈë¿ªÆ½,0-¿ª²Ö,1-Æ½²Ö: ");
+				encoding_print("å¼€å¹³: 0-å¼€, 1-å¹³,2-å¹³ä»Š: ");
 				std::cin >> offset;
-				if (offset != 0 && offset != 1)
+				if (offset != 0 && offset != 1 && offset != 2)
 					continue;
 
-				printf("Æ·ÖÖ: %s.%s,¼Û¸ñ: %f,ÊıÁ¿: %f,·½Ïò: %s,¿ªÆ½: %s,È·ÈÏy/n? ", exchg, code, price, qty, bs == 0 ? "×ö¶à" : "×ö¿Õ", offset == 0 ? "¿ª²Ö" : "Æ½²Ö");
+				encoding_print("åˆçº¦: {}.{},ä»·æ ¼: {},æ•°é‡: {},æ–¹å‘: {},å¼€ç›˜: {},ç¡®è®¤(y/n)? ", exchg, code, price, qty, bs == 0 ? "å¤š" : "ç©º", offset == 0 ? "å¼€" : "å¹³");
 			}
 			
 			char c;
@@ -192,7 +205,7 @@ public:
 			auto it = g_blkList.find(code);
 			if (it != g_blkList.end())
 			{
-				WTSLogger::info("%sÒÑ±»½ûÖ¹½»Ò×", code);
+				WTSLogger::info("{}å·²è¢«ç¦æ­¢äº¤æ˜“", code);
 				return false;
 			}
 		}
@@ -216,11 +229,12 @@ public:
 		char entrustid[64] = { 0 };
 		m_pTraderApi->makeEntrustID(entrustid, 64);
 		entrust->setEntrustID(entrustid);
+		entrust->setUserTag("test");
 
 		if(!isNet)
-			WTSLogger::info("[%s]¿ªÊ¼ÏÂµ¥,Æ·ÖÖ: %s.%s,¼Û¸ñ: %f,ÊıÁ¿: %f,¶¯×÷: %s%s", m_pParams->getCString("user"), exchg, code, price, qty, offset == 0 ? "¿ª" : "Æ½", bs == 0 ? "¶à" : "¿Õ");
+			WTSLogger::info("[{}]Entrusting,Contract: {}.{},Price: {},Volume: {},Action: {}{}", m_pParams->getCString("user"), exchg, code, price, qty, offset == 0 ? "Open" : "Close", bs == 0 ? "Long" : "Short");
 		else
-			WTSLogger::info("[%s]¿ªÊ¼ÏÂµ¥,Æ·ÖÖ: %s.%s,¼Û¸ñ: %f,ÊıÁ¿: %f,¶¯×÷: %s", m_pParams->getCString("user"), exchg, code, price, qty, bs == 0 ? "ÂòÈë" : "Âô³ö");
+			WTSLogger::info("[{}]Entrusting,Contract: {}.{},Price: {},Volume: {},Action: {}", m_pParams->getCString("user"), exchg, code, price, qty, bs == 0 ? "buy" : "sell");
 
 		entrust->setContractInfo(g_bdMgr.getContract(code, exchg));
 		m_pTraderApi->orderInsert(entrust);
@@ -239,22 +253,22 @@ public:
 
 		for (;;)
 		{
-			printf("ÇëÊäÈëÆ·ÖÖ´úÂë: ");
+			encoding_print("åˆçº¦ä»£ç : ");
 			std::cin >> code;
 
-			printf("ÇëÊäÈë½»Ò×Ëù´úÂë: ");
+			encoding_print("äº¤æ˜“æ‰€ä»£ç : ");
 			std::cin >> exchg;
 
-			printf("ÇëÊäÈëÊıÁ¿: ");
+			encoding_print("å§”æ‰˜æ•°é‡: ");
 			std::cin >> qty;
 
-			printf("ÇëÊäÈë·½Ïò,0-×ö¶à,1-×ö¿Õ: ");
+			encoding_print("æ–¹å‘: 0-å¤š, 1-ç©º: ");
 			std::cin >> bs;
 
-			printf("ÇëÊäÈë¿ªÆ½,0-¿ª²Ö,1-Æ½²Ö: ");
+			encoding_print("å¼€å¹³: 0-å¼€, 1-å¹³: ");
 			std::cin >> offset;
 
-			printf("Æ·ÖÖ: %s.%s,ÊıÁ¿: %u,·½Ïò: %s,¿ªÆ½: %s,È·ÈÏy/n? ", exchg, code, qty, bs == 0 ? "×ö¶à" : "×ö¿Õ", offset == 0 ? "¿ª²Ö" : "Æ½²Ö");
+			encoding_print("åˆçº¦: {}.{},æ•°é‡: {},æ–¹å‘: {},å¼€ç›˜: {},ç¡®è®¤(y/n)? ", exchg, code, qty, bs == 0 ? "å¤š" : "ç©º", offset == 0 ? "å¼€" : "å¹³");
 			char c;
 			std::cin >> c;
 			if (c == 'y')
@@ -266,7 +280,7 @@ public:
 			auto it = g_blkList.find(code);
 			if (it != g_blkList.end())
 			{
-				WTSLogger::info("%sÒÑ±»½ûÖ¹½»Ò×", code);
+				WTSLogger::info("{}å·²è¢«ç¦æ­¢äº¤æ˜“", code);
 				return false;
 			}
 		}
@@ -282,7 +296,7 @@ public:
 		m_pTraderApi->makeEntrustID(entrustid, 64);
 		entrust->setEntrustID(entrustid);
 
-		WTSLogger::info("[%s]¿ªÊ¼ÏÂµ¥,Æ·ÖÖ: %s.%s,¼Û¸ñ: ÊĞ¼Û,ÊıÁ¿: %d,¶¯×÷: %s%s", m_pParams->getCString("user"), exchg, code, qty, offset == 0 ? "¿ª" : "Æ½", bs == 0 ? "¶à" : "¿Õ");
+		WTSLogger::info("[{}]Entrusting,Contract: {}.{},Price: MarketPx,Volume: {},Action: {}{}", m_pParams->getCString("user"), exchg, code, qty, offset == 0 ? "Open" : "Close", bs == 0 ? "Long" : "Short");
 
 		m_pTraderApi->orderInsert(entrust);
 		entrust->release();
@@ -292,14 +306,16 @@ public:
 
 	bool cancel()
 	{
-		char orderid[128] = { 0 };
+		std::string orderid;
 
 		for (;;)
 		{
-			printf("ÇëÊäÈë¶©µ¥ID: ");
+			encoding_print("è®¢å•å·: ");
 			std::cin >> orderid;
 
-			printf("¶©µ¥ID: %s,È·ÈÏy\n? ", orderid);
+			StrUtil::replace(orderid, "\"", "");
+
+			encoding_print("è®¢å•å·: {},ç¡®è®¤æ’¤å•(y/n)? ", orderid);
 			char c;
 			std::cin >> c;
 			if (c == 'y')
@@ -312,15 +328,15 @@ public:
 		WTSOrderInfo* ordInfo = (WTSOrderInfo*)m_mapOrds->get(orderid);
 		if (ordInfo == NULL)
 		{
-			WTSLogger::info("¶©µ¥²»´æÔÚ,Çë¼ì²é¶©µ¥ºÅÊÇ·ñÓĞÎó,»òÕßÏÈ²éÑ¯¶©µ¥");
+			WTSLogger::info("Order not exists, Check your orders or query orders first");
 			return false;
 		}
 
 
-		WTSLogger::info("[%s]¿ªÊ¼³·µ¥[%s]...", m_pParams->getCString("user"), orderid);
-		WTSEntrustAction* action = WTSEntrustAction::create(ordInfo->getCode());
+		WTSLogger::info("[{}]Canceling [{}]...", m_pParams->getCString("user"), orderid);
+		WTSEntrustAction* action = WTSEntrustAction::create(ordInfo->getCode(), ordInfo->getExchg());
 		action->setEntrustID(ordInfo->getEntrustID());
-		action->setOrderID(orderid);
+		action->setOrderID(ordInfo->getOrderID());
 		action->setActionFlag(WAF_CANCEL);
 
 		m_pTraderApi->orderAction(action);
@@ -336,7 +352,7 @@ public:
 		{
 			if (ec == 0)
 			{
-				WTSLogger::info("[%s]Á¬½Ó³É¹¦", m_pParams->getCString("user"));
+				WTSLogger::info("[{}] Connected", m_pParams->getCString("user"));
 				m_pTraderApi->login(m_pParams->getCString("user"), m_pParams->getCString("pass"), "");
 			}
 			else
@@ -357,12 +373,12 @@ public:
 	{
 		if(bSucc)
 		{
-			WTSLogger::info("[%s]µÇÂ¼³É¹¦" , m_pParams->getCString("user"));	
+			WTSLogger::info("[{}] Login Succ" , m_pParams->getCString("user"));
 			m_bLogined = true;
 		}
 		else
 		{
-			WTSLogger::info("[%s]µÇÂ¼Ê§°Ü: %s", m_pParams->getCString("user"), msg);
+			WTSLogger::info("[{}] Login Fail: {}", m_pParams->getCString("user"), msg);
 			g_exitNow = true;
 		}
 
@@ -374,7 +390,7 @@ public:
 	{
 		if(err)
 		{
-			WTSLogger::info("[%s]ÏÂµ¥Ê§°Ü: %s", m_pParams->getCString("user"), err->getMessage());
+			WTSLogger::info("[{}] Entrust fail: {}", m_pParams->getCString("user"), err->getMessage());
 			StdUniqueLock lock(g_mtxOpt);
 			g_condOpt.notify_all();
 		}
@@ -388,7 +404,7 @@ public:
 			WTSAccountInfo* accInfo = (WTSAccountInfo*)ayAccounts->at(0);
 			if(accInfo)
 			{
-				WTSLogger::info("[%s]×Ê½ğÊı¾İ¸üĞÂ, µ±Ç°¾²Ì¬È¨Òæ: %.2f", m_pParams->getCString("user"), accInfo->getBalance());
+				WTSLogger::info("[{}]Fund data updated, balance: {:.2f}", m_pParams->getCString("user"), accInfo->getBalance());
 			}
 		}
 
@@ -402,14 +418,19 @@ public:
 		if (ayPositions != NULL)
 			cnt = ayPositions->size();
 
-		WTSLogger::info("[%s]³Ö²ÖÊı¾İÒÑ¸üĞÂ, µ±ÈÕ¹²ÓĞ%u±Ê³Ö²Ö", m_pParams->getCString("user"), cnt);
+		WTSLogger::info("[{}] Positions updated, {} item totally", m_pParams->getCString("user"), cnt);
 		for(uint32_t i = 0; i < cnt; i++)
 		{
 			WTSPositionItem* posItem = (WTSPositionItem*)((WTSArray*)ayPositions)->at(i);
-			if(posItem && posItem->getTotalPosition() > 0 && g_riskAct)
+			if(posItem && posItem->getTotalPosition() > 0)
 			{
-				g_blkList.insert(posItem->getCode());
-				WTSLogger::info("%s³Ö²ÖÁ¿³¬ÏŞ,ÏŞÖÆ¿ª²Ö", posItem->getCode());
+				if(g_riskAct)
+				{
+					g_blkList.insert(posItem->getCode());
+					WTSLogger::info("{}æŒä»“é‡è¶…é™,é™åˆ¶open", posItem->getCode());
+				}
+				
+				WTSLogger::info("Position of {}({}) updated, {}[{}]", posItem->getCode(), posItem->getDirection() == WDT_LONG ? "L" : "S", posItem->getTotalPosition(), posItem->getAvailPosition());
 			}
 		}
 		StdUniqueLock lock(g_mtxOpt);
@@ -430,10 +451,13 @@ public:
 		{
 			WTSOrderInfo* ordInfo = (WTSOrderInfo*)((WTSArray*)ayOrders)->at(i);
 			if (ordInfo->isAlive())
-				m_mapOrds->add(ordInfo->getOrderID(), ordInfo, true);
+			{
+				m_mapOrds->add(StrUtil::trim(ordInfo->getOrderID()), ordInfo, true);
+				WTSLogger::info("[{}] Live order, code: {}, OrderId: {}", m_pParams->getCString("user"), ordInfo->getCode(), ordInfo->getOrderID());
+			}
 		}
 
-		WTSLogger::info("[%s]Î¯ÍĞÁĞ±íÒÑ¸üĞÂ, µ±ÈÕ¹²ÓĞ%u±ÊÎ¯ÍĞ, Î´Íê³É%u±Ê", m_pParams->getCString("user"), cnt, m_mapOrds->size());
+		WTSLogger::info("[{}] Orders updated, {} orders totally, {} orders live", m_pParams->getCString("user"), cnt, m_mapOrds->size());
 
 		StdUniqueLock lock(g_mtxOpt);
 		g_condOpt.notify_all();
@@ -445,14 +469,14 @@ public:
 		if (ayTrades != NULL)
 			cnt = ayTrades->size();
 
-		WTSLogger::info("[%s]³É½»Ã÷Ï¸ÒÑ¸üĞÂ, µ±ÈÕ¹²ÓĞ%u±Ê³É½»", m_pParams->getCString("user"), cnt);
+		WTSLogger::info("[{}] Trades updates, {} trades totally", m_pParams->getCString("user"), cnt);
 		StdUniqueLock lock(g_mtxOpt);
 		g_condOpt.notify_all();
 	}
 
 	virtual void onRspSettlementInfo(uint32_t uDate, const char* content)
 	{
-		WTSLogger::info("[%s]%u½áËãµ¥ÒÑ½ÓÊÕ", m_pParams->getCString("user"), uDate);
+		WTSLogger::info("[{}]{} Settlement received", m_pParams->getCString("user"), uDate);
 		WTSLogger::info(content);
 		StdUniqueLock lock(g_mtxOpt);
 		g_condOpt.notify_all();
@@ -460,17 +484,18 @@ public:
 
 	virtual void onPushOrder(WTSOrderInfo* orderInfo)
 	{
+		std::string orderid = StrUtil::trim(orderInfo->getOrderID());
 		if(orderInfo->getOrderState() != WOS_Canceled)
 		{
-			if(strlen(orderInfo->getOrderID()) > 0)
+			if(!orderid.empty())
 			{
 				if (m_mapOrds == NULL)
 					m_mapOrds = WTSObjectMap::create();
 
-				if (m_mapOrds->find(orderInfo->getOrderID()) == m_mapOrds->end())
+				if (m_mapOrds->find(orderid) == m_mapOrds->end())
 				{
-					WTSLogger::info("[%s]ÏÂµ¥³É¹¦,¶©µ¥ID: %s",  m_pParams->getCString("user"), orderInfo->getOrderID());
-					m_mapOrds->add(orderInfo->getOrderID(), orderInfo, true);
+					WTSLogger::info("[{}] Entrust Success,OrderID: {}",  m_pParams->getCString("user"), orderid);
+					m_mapOrds->add(orderid, orderInfo, true);
 				}
 
 				StdUniqueLock lock(g_mtxOpt);
@@ -480,17 +505,17 @@ public:
 		else 
 		{
 			if (m_mapOrds)
-				m_mapOrds->remove(orderInfo->getOrderID());
+				m_mapOrds->remove(orderid);
 
-			if (strlen(orderInfo->getOrderID()) == 0)
+			if (orderid.empty())
 			{
-				WTSLogger::info("[%s]¶©µ¥%sÌá½»Ê§°Ü±»³·Ïú:%s", m_pParams->getCString("user"), orderInfo->getEntrustID(), orderInfo->getStateMsg());
+				WTSLogger::info("[{}]Order {} Entrust failed and canceld:{}", m_pParams->getCString("user"), orderInfo->getEntrustID(), orderInfo->getStateMsg());
 				StdUniqueLock lock(g_mtxOpt);
 				g_condOpt.notify_all();
 			}
 			else
 			{
-				WTSLogger::info("[%s]¶©µ¥%sÒÑ³·Ïú:%s", m_pParams->getCString("user"), orderInfo->getOrderID(), orderInfo->getStateMsg());
+				WTSLogger::info("[{}] Order {} canceld:{}", m_pParams->getCString("user"), orderid, orderInfo->getStateMsg());
 				StdUniqueLock lock(g_mtxOpt);
 				g_condOpt.notify_all();
 			}			
@@ -499,11 +524,11 @@ public:
 
 	virtual void onPushTrade(WTSTradeInfo* tradeRecord)
 	{
-		WTSLogger::info("[%s]ÊÕµ½³É½»»Ø±¨,ºÏÔ¼%s,³É½»¼Û: %.4f,³É½»ÊıÁ¿: %.4f", m_pParams->getCString("user"), tradeRecord->getCode(), tradeRecord->getPrice(), tradeRecord->getVolume());
+		WTSLogger::info("[{}] Trade pushed,contract: {},price: {},Volume: {}", m_pParams->getCString("user"), tradeRecord->getCode(), tradeRecord->getPrice(), tradeRecord->getVolume());
 
 		if(g_riskAct)
 		{
-			WTSLogger::info("[%s]%s³¬¹ı×î´ó³Ö²ÖÊıÁ¿,½ûÖ¹¿ª²Ö", m_pParams->getCString("user"), tradeRecord->getCode());
+			WTSLogger::info("[{}]{}è¶…è¿‡æœ€å¤§æŒä»“Volume,ç¦æ­¢open", m_pParams->getCString("user"), tradeRecord->getCode());
 
 			g_blkList.insert(tradeRecord->getCode());
 		}
@@ -513,13 +538,13 @@ public:
 	{
 		if(err && err->getErrorCode() == WEC_ORDERCANCEL)
 		{
-			WTSLogger::info("[%s]³·µ¥Ê§°Ü: %s", m_pParams->getCString("user"), err->getMessage());
+			WTSLogger::info("[{}] Canceling failed: {}", m_pParams->getCString("user"), err->getMessage());
 			StdUniqueLock lock(g_mtxOpt);
 			g_condOpt.notify_all();
 		}
 		else if (err && err->getErrorCode() == WEC_ORDERINSERT)
 		{
-			WTSLogger::info("[%s]ÏÂµ¥Ê§°Ü: %s", m_pParams->getCString("user"), err->getMessage());
+			WTSLogger::info("[{}] Entrust failed: {}", m_pParams->getCString("user"), err->getMessage());
 			StdUniqueLock lock(g_mtxOpt);
 			g_condOpt.notify_all();
 		}
@@ -561,38 +586,36 @@ int main()
 {
 	WTSLogger::init("logcfg.yaml");
 
-	WTSLogger::info("Æô¶¯³É¹¦,µ±Ç°ÏµÍ³°æ±¾ºÅ: v1.0");
-
-	WTSVariant* root = WTSCfgLoader::load_from_file("config.yaml", true);
+	WTSVariant* root = WTSCfgLoader::load_from_file("config.yaml");
 	if(root == NULL)
 	{
-		WTSLogger::log_raw(LL_ERROR, "ÅäÖÃÎÄ¼şconfig.yaml¼ÓÔØÊ§°Ü");
+		WTSLogger::log_raw(LL_ERROR, "é…ç½®æ–‡ä»¶config.yamlåŠ è½½å¤±è´¥");
 		return 0;
 	}
 
 	WTSVariant* cfg = root->get("config");
 	bool isUTF8 = cfg->getBoolean("utf8");
 	if(cfg->has("session"))
-		g_bdMgr.loadSessions(cfg->getCString("session"), isUTF8);
+		g_bdMgr.loadSessions(cfg->getCString("session"));
 
 	if (cfg->has("commodity"))
-		g_bdMgr.loadCommodities(cfg->getCString("commodity"), isUTF8);
+		g_bdMgr.loadCommodities(cfg->getCString("commodity"));
 
 	if (cfg->has("contract"))
-		g_bdMgr.loadContracts(cfg->getCString("contract"), isUTF8);
+		g_bdMgr.loadContracts(cfg->getCString("contract"));
 
 	if (cfg->has("holiday"))
 		g_bdMgr.loadHolidays(cfg->getCString("holiday"));
 
 	g_riskAct = cfg->getBoolean("risk");
-	WTSLogger::info("·ç¿Ø¿ª¹Ø: %s", g_riskAct ? "¿ª" : "¹Ø");
+	WTSLogger::info("RiskMon: {}", g_riskAct ? "Open" : "Closed");
 
 	std::string module = cfg->getCString("trader");
 	std::string profile = cfg->getCString("profile");
 	WTSVariant* params = root->get(profile.c_str());
 	if(params == NULL)
 	{
-		WTSLogger::error_f("ÅäÖÃÏî{}²»´æÔÚ", profile);
+		WTSLogger::error("é…ç½®é¡¹{}ä¸å­˜åœ¨", profile);
 		return 0;
 	}
 
@@ -609,17 +632,17 @@ int main()
 	
 	while(true)
 	{
-		printf("ÇëÑ¡Ôñ²Ù×÷\r\n");
-		printf("1¡¢²éÑ¯×Ê½ğ\r\n");
-		printf("2¡¢²éÑ¯¶©µ¥\r\n");
-		printf("3¡¢²éÑ¯³É½»\r\n");
-		printf("4¡¢²éÑ¯³Ö²Ö\r\n");
-		printf("5¡¢²éÑ¯½áËãµ¥\r\n");
-		printf("6¡¢ÏŞ¼ÛÏÂµ¥\r\n");
-		printf("7¡¢ÊĞ¼ÛÏÂµ¥\r\n");
-		printf("8¡¢³·µ¥\r\n");
-		printf("9¡¢¾»³Ö²Ö½»Ò×\r\n");
-		printf("0¡¢ÍË³ö\r\n");
+		encoding_print("Please pick an action\r\n");
+		encoding_print("1. æŸ¥è¯¢èµ„é‡‘\r\n");
+		encoding_print("2. æŸ¥è¯¢è®¢å•\r\n");
+		encoding_print("3. æŸ¥è¯¢æˆäº¤\r\n");
+		encoding_print("4. æŸ¥è¯¢æŒä»“\r\n");
+		encoding_print("5. æŸ¥è¯¢ç»“ç®—å•\r\n");
+		encoding_print("6. é™ä»·å§”æ‰˜\r\n");
+		encoding_print("7. å¸‚ä»·å§”æ‰˜\r\n");
+		encoding_print("8. æ’¤å•\r\n");
+		encoding_print("9. å‡€å¤´å¯¸äº¤æ˜“\r\n");
+		encoding_print("0. é€€å‡º\r\n");
 
 		char cmd;
 		for (;;)

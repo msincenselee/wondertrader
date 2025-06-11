@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <stdint.h>
 #include "../Includes/WTSMarcos.h"
 
@@ -22,6 +22,8 @@ extern "C"
 	EXPORT_FLAG	void		release_exec();
 
 	EXPORT_FLAG	void		set_position(WtString stdCode, double targetPos);
+
+	EXPORT_FLAG	void		commit_positions();
 
 #ifdef __cplusplus
 }

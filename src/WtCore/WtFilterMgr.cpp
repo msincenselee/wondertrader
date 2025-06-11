@@ -1,4 +1,4 @@
-#include "WtFilterMgr.h"
+ï»¿#include "WtFilterMgr.h"
 #include "EventNotifier.h"
 
 #include "../Share/CodeHelper.hpp"
@@ -20,7 +20,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 	if (!StdFile::exists(_filter_file.c_str()))
 	{
-		WTSLogger::debug_f("Filters configuration file {} not exists", _filter_file);
+		WTSLogger::debug("Filters configuration file {} not exists", _filter_file);
 		return;
 	}
 
@@ -30,12 +30,12 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 	if (_filter_timestamp != 0)
 	{
-		WTSLogger::info_f("Filters configuration file {} modified, will be reloaded", _filter_file);
+		WTSLogger::info("Filters configuration file {} modified, will be reloaded", _filter_file);
 		if (_notifier)
-			_notifier->notifyEvent("Filter file has been reloaded");
+			_notifier->notify_event("Filter file has been reloaded");
 	}
 
-	WTSVariant* cfg = WTSCfgLoader::load_from_file(_filter_file.c_str(), true);
+	WTSVariant* cfg = WTSCfgLoader::load_from_file(_filter_file.c_str());
 
 	_filter_timestamp = lastModTime;
 
@@ -43,7 +43,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 	_code_filters.clear();
 	_exec_filters.clear();
 
-	//¶Á²ßÂÔ¹ıÂËÆ÷
+	//è¯»ç­–ç•¥è¿‡æ»¤å™¨
 	WTSVariant* filterStra = cfg->get("strategy_filters");
 	if (filterStra)
 	{
@@ -60,7 +60,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 			if (fAct == FA_None)
 			{
-				WTSLogger::error_f("Action {} of strategy filter {} not recognized", action, key);
+				WTSLogger::error("Action {} of strategy filter {} not recognized", action, key);
 				continue;
 			}
 
@@ -69,11 +69,11 @@ void WtFilterMgr::load_filters(const char* fileName)
 			fItem._action = fAct;
 			fItem._target = cfgItem->getDouble("target");
 
-			WTSLogger::info_f("Strategy filter {} loaded", key);
+			WTSLogger::info("Strategy filter {} loaded", key);
 		}
 	}
 
-	//¶Á´úÂë¹ıÂËÆ÷
+	//è¯»ä»£ç è¿‡æ»¤å™¨
 	WTSVariant* filterCodes = cfg->get("code_filters");
 	if (filterCodes)
 	{
@@ -91,7 +91,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 
 			if (fAct == FA_None)
 			{
-				WTSLogger::error_f("Action {} of code filter {} not recognized", action, stdCode);
+				WTSLogger::error("Action {} of code filter {} not recognized", action, stdCode);
 				continue;
 			}
 
@@ -100,11 +100,11 @@ void WtFilterMgr::load_filters(const char* fileName)
 			fItem._action = fAct;
 			fItem._target = cfgItem->getDouble("target");
 
-			WTSLogger::info_f("Code filter {} loaded", stdCode);
+			WTSLogger::info("Code filter {} loaded", stdCode);
 		}
 	}
 
-	//¶ÁÍ¨µÀ¹ıÂËÆ÷
+	//è¯»é€šé“è¿‡æ»¤å™¨
 	WTSVariant* filterExecuters = cfg->get("executer_filters");
 	if (filterExecuters)
 	{
@@ -112,7 +112,7 @@ void WtFilterMgr::load_filters(const char* fileName)
 		for (const std::string& execid : executer_ids)
 		{
 			bool bDisabled = filterExecuters->getBoolean(execid.c_str());
-			WTSLogger::info_f("Executer {} is %s", execid, bDisabled?"disabled":"enabled");
+			WTSLogger::info("Executer {} is %s", execid, bDisabled?"disabled":"enabled");
 			_exec_filters[execid] = bDisabled;
 		}
 	}
@@ -143,19 +143,19 @@ bool WtFilterMgr::is_filtered_by_strategy(const char* straName, double& targetPo
 		const FilterItem& fItem = it->second;
 		if(isDiff)
 		{
-			//Èç¹û¹ıÂËÆ÷´¥·¢£¬²¢ÇÒÊÇÔöÁ¿Í·´ç£¬ÔòÖ±½Ó¹ıÂËµô
-			WTSLogger::info("[Filters] Strategy filter %s triggered, the change of position ignored directly", straName);
+			//å¦‚æœè¿‡æ»¤å™¨è§¦å‘ï¼Œå¹¶ä¸”æ˜¯å¢é‡å¤´å¯¸ï¼Œåˆ™ç›´æ¥è¿‡æ»¤æ‰
+			WTSLogger::info("[Filters] Strategy filter {} triggered, the change of position ignored directly", straName);
 			return true;
 		}
 
-		WTSLogger::info("[Filters] Strategy filter %s triggered, action: %s", straName, fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
+		WTSLogger::info("[Filters] Strategy filter {} triggered, action: {}", straName, fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
 		if (fItem._action == FA_Ignore)
 		{
 			return true;
 		}
 		else if (fItem._action == FA_Redirect)
 		{
-			//Ö»ÓĞ²»ÊÇÔöÁ¿µÄÊ±ºò,²ÅÓĞĞ§
+			//åªæœ‰ä¸æ˜¯å¢é‡çš„æ—¶å€™,æ‰æœ‰æ•ˆ
 			targetPos = fItem._target;
 		}
 
@@ -167,11 +167,12 @@ bool WtFilterMgr::is_filtered_by_strategy(const char* straName, double& targetPo
 
 bool WtFilterMgr::is_filtered_by_code(const char* stdCode, double& targetPos)
 {
+	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, NULL);
 	auto cit = _code_filters.find(stdCode);
 	if (cit != _code_filters.end())
 	{
 		const FilterItem& fItem = cit->second;
-		WTSLogger::info("[Filters] Code filter %s triggered, action: %s", stdCode, fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
+		WTSLogger::info("[Filters] Code filter {} triggered, action: {}", stdCode, fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
 		if (fItem._action == FA_Ignore)
 		{
 			return true;
@@ -184,12 +185,11 @@ bool WtFilterMgr::is_filtered_by_code(const char* stdCode, double& targetPos)
 		return false;
 	}
 
-	std::string stdPID = CodeHelper::stdCodeToStdCommID(stdCode);
-	cit = _code_filters.find(stdPID);
+	cit = _code_filters.find(cInfo.stdCommID());
 	if (cit != _code_filters.end())
 	{
 		const FilterItem& fItem = cit->second;
-		WTSLogger::info("[Filters] CommID filter %s triggered, action: %s", stdPID.c_str(), fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
+		WTSLogger::info("[Filters] CommID filter {} triggered, action: {}", cInfo.stdCommID(), fItem._action <= FA_Redirect ? FLTACT_NAMEs[fItem._action] : "Unknown");
 		if (fItem._action == FA_Ignore)
 		{
 			return true;

@@ -1,11 +1,11 @@
-/*!
+ï»¿/*!
  * \file EventCaster.h
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
  * 
- * \brief UDP¹ã²¥¶ÔÏó¶¨Òå
+ * \brief UDPå¹¿æ’­å¯¹è±¡å®šä¹‰
  */
 #pragma once
 
@@ -42,6 +42,7 @@ private:
 	StdCondVariable	m_condCast;
 	StdUniqueMutex	m_mtxCast;
 	bool			m_bTerminated;
+	bool			m_bTimeout;
 
 	typedef struct _PubData
 	{
@@ -49,8 +50,12 @@ private:
 		std::string	_data;
 
 		_PubData(const char* topic, const void* data, uint32_t dataLen)
-			: _data((const char*)data, dataLen), _topic(topic)
+			: _topic(topic)
 		{
+			if(data !=  NULL && dataLen != 0)
+			{
+				_data.append((const char*)data, dataLen);
+			}
 		}
 	} PubData;
 	typedef std::queue<PubData> PubDataQue;

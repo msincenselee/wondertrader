@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "PorterDefs.h"
 #include "MQServer.h"
 #include "MQClient.h"
@@ -11,7 +11,7 @@ NS_WTP_BEGIN
 #pragma warning(disable:4200)
 
 #pragma pack(push,1)
-//UDPÇëÇó°ü
+//UDPÃ‡Ã«Ã‡Ã³Â°Ã¼
 typedef struct _MQPacket
 {
 	char			_topic[32];
@@ -44,10 +44,10 @@ public:
 	void		log_client(WtUInt32 id, const char* message);
 
 private:
-	typedef faster_hashmap<uint32_t, MQServerPtr> ServerMap;
+	typedef wt_hashmap<uint32_t, MQServerPtr> ServerMap;
 	ServerMap	_servers;
 
-	typedef faster_hashmap<uint32_t, MQClientPtr> ClientMap;
+	typedef wt_hashmap<uint32_t, MQClientPtr> ClientMap;
 	ClientMap	_clients;
 
 	FuncLogCallback	_cb_log;

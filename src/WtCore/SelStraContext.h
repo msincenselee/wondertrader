@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "SelStraBaseCtx.h"
 
 USING_NS_WTP;
@@ -8,7 +8,7 @@ class SelStrategy;
 class SelStraContext : public SelStraBaseCtx
 {
 public:
-	SelStraContext(WtSelEngine* engine, const char* name);
+	SelStraContext(WtSelEngine* engine, const char* name, int32_t slippage);
 	virtual ~SelStraContext();
 
 	void set_strategy(SelStrategy* stra){ _strategy = stra; }

@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * \file WtCtaEngine.cpp
  * \project	WonderTrader
  *
@@ -14,6 +14,7 @@
 #include "WtCtaTicker.h"
 #include "WtHelper.h"
 #include "TraderAdapter.h"
+#include "EventNotifier.h"
 
 #include "../Share/CodeHelper.hpp"
 #include "../Includes/WTSVariant.hpp"
@@ -29,10 +30,6 @@
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 namespace rj = rapidjson;
-
-#include <boost/asio.hpp>
-
-boost::asio::io_service g_asyncIO;
 
 WtCtaEngine::WtCtaEngine()
 	: _tm_ticker(NULL)
@@ -53,13 +50,13 @@ WtCtaEngine::~WtCtaEngine()
 		_cfg->release();
 }
 
-void WtCtaEngine::run(bool bAsync /* = false */)
+void WtCtaEngine::run()
 {
 	_tm_ticker = new WtCtaRtTicker(this);
 	WTSVariant* cfgProd = _cfg->get("product");
 	_tm_ticker->init(_data_mgr->reader(), cfgProd->getCString("session"));
 
-	//Æô¶¯Ö®Ç°,ÏÈ°ÑÔËÐÐÖÐµÄ²ßÂÔÂäµØ
+	//å¯åŠ¨ä¹‹å‰,å…ˆæŠŠè¿è¡Œä¸­çš„ç­–ç•¥è½åœ°
 	{
 		rj::Document root(rj::kObjectType);
 		rj::Document::AllocatorType &allocator = root.GetAllocator();
@@ -106,11 +103,6 @@ void WtCtaEngine::run(bool bAsync /* = false */)
 	if (_risk_mon)
 		_risk_mon->self()->run();
 
-	if (!bAsync)
-	{
-		boost::asio::io_service::work work(g_asyncIO);
-		g_asyncIO.run();
-	}
 }
 
 void WtCtaEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDtMgr* dataMgr, IHotMgr* hotMgr, EventNotifier* notifier /* = NULL */)
@@ -121,6 +113,13 @@ void WtCtaEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtDtMgr* dataMgr, I
 	_cfg->retain();
 
 	_exec_mgr.set_filter_mgr(&_filter_mgr);
+
+	uint32_t poolsize = cfg->getUInt32("poolsize");
+	if (poolsize > 0)
+	{
+		_pool.reset(new boost::threadpool::pool(poolsize));
+	}
+	WTSLogger::info("Engine task poolsize is {}", poolsize);
 }
 
 void WtCtaEngine::addContext(CtaContextPtr ctx)
@@ -140,13 +139,16 @@ CtaContextPtr WtCtaEngine::getContext(uint32_t id)
 
 void WtCtaEngine::on_init()
 {
-	faster_hashmap<LongKey, double> target_pos;
+	//wt_hashmap<std::string, double> target_pos;
+	_exec_mgr.clear_cached_targets();
 	for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
 	{
 		CtaContextPtr& ctx = (CtaContextPtr&)it->second;
 		ctx->on_init();
 
-		ctx->enum_position([this, &target_pos, ctx](const char* stdCode, double qty){
+		const auto& exec_ids = _exec_mgr.get_route(ctx->name());
+
+		ctx->enum_position([this, ctx, exec_ids](const char* stdCode, double qty){
 
 			double oldQty = qty;
 			bool bFilterd = _filter_mgr.is_filtered_by_strategy(ctx->name(), qty);
@@ -154,60 +156,53 @@ void WtCtaEngine::on_init()
 			{
 				if (!decimal::eq(qty, oldQty))
 				{
-					//Êä³öÈÕÖ¾
-					WTSLogger::info_f("[Filters] Target position of {} of strategy {} reset by strategy filter: {} -> {}", 
+					//è¾“å‡ºæ—¥å¿—
+					WTSLogger::info("[Filters] Target position of {} of strategy {} reset by strategy filter: {} -> {}", 
 						stdCode, ctx->name(), oldQty, qty);
 				}
 
 				std::string realCode = stdCode;
-				if (CodeHelper::isStdFutHotCode(stdCode))
+				CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+				if(strlen(cInfo._ruletag) > 0)
 				{
-					CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-					std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-					realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
-				}
-				else if (CodeHelper::isStdFut2ndCode(stdCode))
-				{
-					CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-					std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
+					std::string code = _hot_mgr->getCustomRawCode(cInfo._ruletag, cInfo.stdCommID(), _cur_tdate);
 					realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
 				}
 
-				double& vol = target_pos[realCode];
-				vol += qty;
+				for(auto& execid : exec_ids)
+					_exec_mgr.add_target_to_cache(realCode.c_str(), qty, execid.c_str());
 			}
 			else
 			{
-				//Êä³öÈÕÖ¾
-				//WTSLogger::info("[¹ýÂËÆ÷] ²ßÂÔ%sµÄ%sµÄÄ¿±ê²ÖÎ»±»²ßÂÔ¹ýÂËÆ÷ºöÂÔ", ctx->name(), stdCode);
-				WTSLogger::info("[Filters] Target position of %s of strategy %s ignored by strategy filter", stdCode, ctx->name());
+				//è¾“å‡ºæ—¥å¿—
+				WTSLogger::info("[Filters] Target position of {} of strategy {} ignored by strategy filter", stdCode, ctx->name());
 			}
-		});
+		}, true);
 	}
 
 	bool bRiskEnabled = false;
 	if (!decimal::eq(_risk_volscale, 1.0) && _risk_date == _cur_tdate)
 	{
-		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of strategy group is %.2f", _risk_volscale);
+		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of portfolio is {:.2f}", _risk_volscale);
 		bRiskEnabled = true;
 	}
 
-	//³õÊ¼»¯²ÖÎ»´òÓ¡³öÀ´
-	for (auto it = target_pos.begin(); it != target_pos.end(); it++)
-	{
-		const auto& stdCode = it->first;
-		double& pos = (double&)it->second;
+	////åˆå§‹åŒ–ä»“ä½æ‰“å°å‡ºæ¥
+	//for (auto it = target_pos.begin(); it != target_pos.end(); it++)
+	//{
+	//	const auto& stdCode = it->first;
+	//	double& pos = (double&)it->second;
 
-		if (bRiskEnabled && !decimal::eq(pos, 0))
-		{
-			double symbol = pos / abs(pos);
-			pos = decimal::rnd(abs(pos)*_risk_volscale)*symbol;
-		}
+	//	if (bRiskEnabled && !decimal::eq(pos, 0))
+	//	{
+	//		double symbol = pos / abs(pos);
+	//		pos = decimal::rnd(abs(pos)*_risk_volscale)*symbol;
+	//	}
 
-		WTSLogger::info_f("Portfolio initial position of {} is {}", stdCode.c_str(), pos);
-	}
+	//	WTSLogger::info("Portfolio initial position of {} is {}", stdCode.c_str(), pos);
+	//}
 
-	_exec_mgr.set_positions(target_pos);
+	_exec_mgr.commit_cached_targets(bRiskEnabled?_risk_volscale:1.0);
 
 	if (_evt_listener)
 		_evt_listener->on_initialize_event();
@@ -215,7 +210,7 @@ void WtCtaEngine::on_init()
 
 void WtCtaEngine::on_session_begin()
 {
-	WTSLogger::info("Trading day %u begun", _cur_tdate);
+	WTSLogger::info("Trading day {} begun", _cur_tdate);
 	for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
 	{
 		CtaContextPtr& ctx = (CtaContextPtr&)it->second;
@@ -238,69 +233,129 @@ void WtCtaEngine::on_session_end()
 		ctx->on_session_end(_cur_tdate);
 	}
 
-	WTSLogger::info("Trading day %u ended", _cur_tdate);
+	WTSLogger::info("Trading day {} ended", _cur_tdate);
 	if (_evt_listener)
 		_evt_listener->on_session_event(_cur_tdate, false);
 }
 
 void WtCtaEngine::on_schedule(uint32_t curDate, uint32_t curTime)
 {
-	//È¥¼ì²éÒ»ÏÂ¹ýÂËÆ÷
+	//åŽ»æ£€æŸ¥ä¸€ä¸‹è¿‡æ»¤å™¨
 	_filter_mgr.load_filters();
-
-	faster_hashmap<LongKey, double> target_pos;
-
-	for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
+	_exec_mgr.clear_cached_targets();
+	wt_hashmap<std::string, double> target_pos;
+	if(_pool)
 	{
-		CtaContextPtr& ctx = (CtaContextPtr&)it->second;
-		ctx->on_schedule(curDate, curTime);
-		ctx->enum_position([this, &target_pos, ctx](const char* stdCode, double qty){
+		/*
+		 *	By Wesley @ 2023.06.27
+		 *	å¦‚æžœé€šè¿‡çº¿ç¨‹æ± å¹¶å‘
+		 *	å…ˆå¹¶å‘æ‰€æœ‰çš„on_schedule
+		 *	ç„¶åŽå†waitæ‰€æœ‰ä»»åŠ¡ç»“æŸ
+		 *	æœ€åŽå†ç»Ÿä¸€è¯»å–å…¨éƒ¨æŒä»“
+		 */
+		for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
+		{
+			CtaContextPtr& ctx = (CtaContextPtr&)it->second;
+			_pool->schedule([ctx, curDate, curTime] (){
+				ctx->on_schedule(curDate, curTime);
+			});
+		}
 
-			double oldQty = qty;
-			bool bFilterd = _filter_mgr.is_filtered_by_strategy(ctx->name(), qty);
-			if(!bFilterd)
-			{
-				if(!decimal::eq(qty, oldQty))
-				{
-					//Êä³öÈÕÖ¾
-					WTSLogger::info_f("[Filters] Target position of {} of strategy {} reset by strategy filter: {} -> {}", 
-						stdCode, ctx->name(), oldQty, qty);
-				}
+		/*
+		 *	By Wesley @ 2023.06.27
+		 *	ç­‰å¾…å…¨éƒ¨on_scheduleæ‰§è¡Œå®Œæˆ
+		 */
+		_pool->wait();
+		
+		for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
+		{
+			CtaContextPtr& ctx = (CtaContextPtr&)it->second;
+			const auto& exec_ids = _exec_mgr.get_route(ctx->name());
+			ctx->enum_position([this, ctx, exec_ids, &target_pos](const char* stdCode, double qty) {
 
-				std::string realCode = stdCode;
-				if (CodeHelper::isStdFutHotCode(stdCode))
+				double oldQty = qty;
+				bool bFilterd = _filter_mgr.is_filtered_by_strategy(ctx->name(), qty);
+				if (!bFilterd)
 				{
-					CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-					std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-					realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
-				}
-				else if (CodeHelper::isStdFut2ndCode(stdCode))
-				{
-					CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-					std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-					realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
-				}
+					if (!decimal::eq(qty, oldQty))
+					{
+						//è¾“å‡ºæ—¥å¿—
+						WTSLogger::info("[Filters] Target position of {} of strategy {} reset by strategy filter: {} -> {}",
+							stdCode, ctx->name(), oldQty, qty);
+					}
 
-				double& vol = target_pos[realCode];
-				vol += qty;
-			}
-			else
-			{
-				//Êä³öÈÕÖ¾
-				//WTSLogger::info("[¹ýÂËÆ÷] ²ßÂÔ%sµÄ%sµÄÄ¿±ê²ÖÎ»±»²ßÂÔ¹ýÂËÆ÷ºöÂÔ", ctx->name(), stdCode);
-				WTSLogger::info("[Filters] Target position of %s of strategy %s ignored by strategy filter", stdCode, ctx->name());
-			}
-		});
+					std::string realCode = stdCode;
+					CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+					if (strlen(cInfo._ruletag) > 0)
+					{
+						std::string code = _hot_mgr->getCustomRawCode(cInfo._ruletag, cInfo.stdCommID(), _cur_tdate);
+						realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
+					}
+
+					double& vol = target_pos[realCode];
+					vol += qty;
+					for (auto& execid : exec_ids)
+						_exec_mgr.add_target_to_cache(realCode.c_str(), qty, execid.c_str());
+				}
+				else
+				{
+					//è¾“å‡ºæ—¥å¿—
+					WTSLogger::info("[Filters] Target position of {} of strategy {} ignored by strategy filter", stdCode, ctx->name());
+				}
+			}, true);
+		}
 	}
+	else
+	{
+		for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
+		{
+			CtaContextPtr& ctx = (CtaContextPtr&)it->second;
+			ctx->on_schedule(curDate, curTime);
+			const auto& exec_ids = _exec_mgr.get_route(ctx->name());
+			ctx->enum_position([this, ctx, exec_ids, &target_pos](const char* stdCode, double qty) {
+
+				double oldQty = qty;
+				bool bFilterd = _filter_mgr.is_filtered_by_strategy(ctx->name(), qty);
+				if (!bFilterd)
+				{
+					if (!decimal::eq(qty, oldQty))
+					{
+						//è¾“å‡ºæ—¥å¿—
+						WTSLogger::info("[Filters] Target position of {} of strategy {} reset by strategy filter: {} -> {}",
+							stdCode, ctx->name(), oldQty, qty);
+					}
+
+					std::string realCode = stdCode;
+					CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+					if (strlen(cInfo._ruletag) > 0)
+					{
+						std::string code = _hot_mgr->getCustomRawCode(cInfo._ruletag, cInfo.stdCommID(), _cur_tdate);
+						realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
+					}
+
+					double& vol = target_pos[realCode];
+					vol += qty;
+					for (auto& execid : exec_ids)
+						_exec_mgr.add_target_to_cache(realCode.c_str(), qty, execid.c_str());
+				}
+				else
+				{
+					//è¾“å‡ºæ—¥å¿—
+					WTSLogger::info("[Filters] Target position of {} of strategy {} ignored by strategy filter", stdCode, ctx->name());
+				}
+			}, true);
+		}
+	}
+	
 
 	bool bRiskEnabled = false;
 	if(!decimal::eq(_risk_volscale, 1.0) && _risk_date == _cur_tdate)
 	{
-		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of strategy group is %.2f", _risk_volscale);
+		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of strategy group is {:.2f}", _risk_volscale);
 		bRiskEnabled = true;
 	}
 
-	//´¦Àí×éºÏÀíÂÛ²¿Î»
+	//å¤„ç†ç»„åˆç†è®ºéƒ¨ä½
 	for (auto it = target_pos.begin(); it != target_pos.end(); it++)
 	{
 		const auto& stdCode = it->first;
@@ -320,26 +375,35 @@ void WtCtaEngine::on_schedule(uint32_t curDate, uint32_t curTime)
 		const auto& stdCode = m.first;
 		if (target_pos.find(stdCode) == target_pos.end())
 		{
-			if(!decimal::eq(m.second._volume, 0))
+			if(!decimal::eq(m.second->_volume, 0))
 			{
-				//ÕâÀïÊÇÍ¨ÖªWtEngineÈ¥¸üÐÂ×éºÏ³Ö²ÖÊý¾Ý
+				//è¿™é‡Œæ˜¯é€šçŸ¥WtEngineåŽ»æ›´æ–°ç»„åˆæŒä»“æ•°æ®
 				append_signal(stdCode.c_str(), 0, true);
 
-				WTSLogger::error("Instrument %s not in target positions, setup to 0 automatically", stdCode.c_str());
+				WTSLogger::error("Instrument {} not in target positions, setup to 0 automatically", stdCode.c_str());
 			}
 
-			//ÒòÎª×éºÏ³Ö²ÖÀï»áÓÐ¹ýÆÚµÄºÏÔ¼´úÂë´æÔÚ£¬ËùÒÔÕâÀïÔÚ¶ª¸øÖ´ÐÐÒÔÇ°Òª×öÒ»¸ö¼ì²é
+			//å› ä¸ºç»„åˆæŒä»“é‡Œä¼šæœ‰è¿‡æœŸçš„åˆçº¦ä»£ç å­˜åœ¨ï¼Œæ‰€ä»¥è¿™é‡Œåœ¨ä¸¢ç»™æ‰§è¡Œä»¥å‰è¦åšä¸€ä¸ªæ£€æŸ¥
 			auto cInfo = get_contract_info(stdCode.c_str());
-			if(cInfo != NULL)
-				target_pos[stdCode] = 0;
+			if (cInfo != NULL)
+			{
+				//target_pos[stdCode] = 0;
+				_exec_mgr.add_target_to_cache(stdCode.c_str(), 0);
+			}
 		}
 	}
 
 	push_task([this](){
 		update_fund_dynprofit();
+		/*
+		 *	By Wesley @ 2023.01.30
+		 *	å¢žåŠ ä¸€ä¸ªå®šæ—¶åˆ·æ–°äº¤æ˜“è´¦å·èµ„é‡‘çš„å…¥å£
+		 */
+		_adapter_mgr->refresh_funds();
 	});
 
-	_exec_mgr.set_positions(target_pos);
+	//_exec_mgr.set_positions(target_pos);
+	_exec_mgr.commit_cached_targets(bRiskEnabled ? _risk_volscale : 1);
 
 	save_datas();
 
@@ -348,55 +412,64 @@ void WtCtaEngine::on_schedule(uint32_t curDate, uint32_t curTime)
 }
 
 
-void WtCtaEngine::handle_push_quote(WTSTickData* newTick, uint32_t hotFlag)
+void WtCtaEngine::handle_push_quote(WTSTickData* newTick)
 {
 	if (_tm_ticker)
-		_tm_ticker->on_tick(newTick, hotFlag);
+		_tm_ticker->on_tick(newTick);
 }
 
-void WtCtaEngine::handle_pos_change(const char* straName, const char* stdCode, double diffQty)
+void WtCtaEngine::handle_pos_change(const char* straName, const char* stdCode, double diffPos)
 {
-	//ÕâÀïÊÇ³Ö²ÖÔöÁ¿,ËùÒÔ²»ÓÃ´¦ÀíÎ´¹ýÂËµÄÇé¿ö,ÒòÎªÔöÁ¿Çé¿öÏÂ,²»»á¸Ä±äÄ¿±êdiffQty
-	if(_filter_mgr.is_filtered_by_strategy(straName, diffQty, true))
+	//è¿™é‡Œæ˜¯æŒä»“å¢žé‡,æ‰€ä»¥ä¸ç”¨å¤„ç†æœªè¿‡æ»¤çš„æƒ…å†µ,å› ä¸ºå¢žé‡æƒ…å†µä¸‹,ä¸ä¼šæ”¹å˜ç›®æ ‡diffQty
+	if(_filter_mgr.is_filtered_by_strategy(straName, diffPos, true))
 	{
-		//Êä³öÈÕÖ¾
-		WTSLogger::info("[Filters] Target position of %s of strategy %s ignored by strategy filter", stdCode, straName);
+		//è¾“å‡ºæ—¥å¿—
+		WTSLogger::info("[Filters] Target position of {} of strategy {} ignored by strategy filter", stdCode, straName);
 		return;
 	}
 
 	std::string realCode = stdCode;
-	if (CodeHelper::isStdFutHotCode(stdCode))
+	//const char* ruleTag = _hot_mgr->getRuleTag(stdCode);
+	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+	if (strlen(cInfo._ruletag) > 0)
 	{
-		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-		std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-		realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
-	}
-	else if (CodeHelper::isStdFut2ndCode(stdCode))
-	{
-		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-		std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
+		std::string code = _hot_mgr->getCustomRawCode(cInfo._ruletag, cInfo.stdCommID(), _cur_tdate);
 		realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
 	}
 
-	PosInfo& pItem = _pos_map[realCode];
-	double targetPos = pItem._volume + diffQty;
+	/*
+	 *	è¿™é‡Œå¿…é¡»è¦ç®—ä¸€ä¸ªæ€»çš„ç›®æ ‡ä»“ä½
+	 */
+	PosInfoPtr& pInfo = _pos_map[realCode];	
+	if (pInfo == NULL)
+		pInfo.reset(new PosInfo);
 
 	bool bRiskEnabled = false;
 	if (!decimal::eq(_risk_volscale, 1.0) && _risk_date == _cur_tdate)
 	{
-		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of strategy group is %.2f", _risk_volscale);
+		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of portfolio is {:.2f}", _risk_volscale);
 		bRiskEnabled = true;
 	}
-	if (bRiskEnabled && !decimal::eq(targetPos, 0))
+
+	if (bRiskEnabled && !decimal::eq(diffPos, 0))
 	{
-		double symbol = targetPos / abs(targetPos);
-		targetPos = decimal::rnd(abs(targetPos)*_risk_volscale)*symbol;
+		double symbol = diffPos / abs(diffPos);
+		diffPos = decimal::rnd(abs(diffPos)*_risk_volscale)*symbol;
 	}
+
+	double targetPos = pInfo->_volume + diffPos;
 
 	append_signal(realCode.c_str(), targetPos, false);
 	save_datas();
 
-	_exec_mgr.handle_pos_change(realCode.c_str(), targetPos);
+	/*
+	 *	å¦‚æžœç­–ç•¥ç»‘å®šäº†æ‰§è¡Œé€šé“
+	 *	é‚£ä¹ˆå°±åªæäº¤å¢žé‡
+	 *	å¦‚æžœç­–ç•¥æ²¡æœ‰ç»‘å®šæ‰§è¡Œé€šé“ï¼Œå°±æäº¤å…¨é‡
+	 */
+	const auto& exec_ids = _exec_mgr.get_route(straName);
+	for(auto& execid : exec_ids)
+		_exec_mgr.handle_pos_change(realCode.c_str(), targetPos, diffPos, execid.c_str());
 }
 
 void WtCtaEngine::on_tick(const char* stdCode, WTSTickData* curTick)
@@ -405,108 +478,154 @@ void WtCtaEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 
 	_data_mgr->handle_push_quote(stdCode, curTick);
 
-	//Èç¹ûÊÇÕæÊµ´úÂë, ÔòÒª´«µÝ¸øÖ´ÐÐÆ÷
+	//å¦‚æžœæ˜¯çœŸå®žä»£ç , åˆ™è¦ä¼ é€’ç»™æ‰§è¡Œå™¨
 	/*
-	 *	ÕâÀï²»ÔÙ×öÅÐ¶Ï£¬Ö±½ÓÈ«²¿´«µÝ¸øÖ´ÐÐÆ÷¹ÜÀíÆ÷£¬ÒòÎªÖ´ÐÐÆ÷¿ÉÄÜ»á´¦ÀíÎ´¶©ÔÄµÄºÏÔ¼
-	 *	Ö÷Òª³¡¾°ÎªÖ÷Á¦ºÏÔ¼»»ÔÂÆÚ¼ä
+	 *	è¿™é‡Œä¸å†åšåˆ¤æ–­ï¼Œç›´æŽ¥å…¨éƒ¨ä¼ é€’ç»™æ‰§è¡Œå™¨ç®¡ç†å™¨ï¼Œå› ä¸ºæ‰§è¡Œå™¨å¯èƒ½ä¼šå¤„ç†æœªè®¢é˜…çš„åˆçº¦
+	 *	ä¸»è¦åœºæ™¯ä¸ºä¸»åŠ›åˆçº¦æ¢æœˆæœŸé—´
 	 *	By Wesley @ 2021.08.19
 	 */
 	{
-		//ÊÇ·ñÖ÷Á¦ºÏÔ¼´úÂëµÄ±ê¼Ç, Ö÷ÒªÓÃÓÚ¸øÖ´ÐÐÆ÷·¢Êý¾ÝµÄ
+		//æ˜¯å¦ä¸»åŠ›åˆçº¦ä»£ç çš„æ ‡è®°, ä¸»è¦ç”¨äºŽç»™æ‰§è¡Œå™¨å‘æ•°æ®çš„
 		_exec_mgr.handle_tick(stdCode, curTick);
 	}
 
 	/*
 	 *	By Wesley @ 2022.02.07
-	 *	ÕâÀï×öÁËÒ»¸ö³¹µ×µÄµ÷Õû
-	 *	µÚÒ»£¬¼ì²é¶©ÔÄ±ê¼Ç£¬Èç¹û±ê¼ÇÎª0£¬¼´ÎÞ¸´È¨Ä£Ê½£¬ÔòÖ±½Ó°´ÕÕÔ­Ê¼´úÂë´¥·¢ontick
-	 *	µÚ¶þ£¬Èç¹û±ê¼ÇÎª1£¬¼´Ç°¸´È¨Ä£Ê½£¬Ôò½«´úÂë×ª³Éxxxx-£¬ÔÙ´¥·¢ontick
-	 *	µÚÈý£¬Èç¹û±ê¼ÇÎª2£¬¼´ºó¸´È¨Ä£Ê½£¬Ôò½«´úÂë×ª³Éxxxx+£¬ÔÙ°ÑtickÊý¾Ý×öÒ»¸öÐÞÕý£¬ÔÙ´¥·¢ontick
+	 *	è¿™é‡Œåšäº†ä¸€ä¸ªå½»åº•çš„è°ƒæ•´
+	 *	ç¬¬ä¸€ï¼Œæ£€æŸ¥è®¢é˜…æ ‡è®°ï¼Œå¦‚æžœæ ‡è®°ä¸º0ï¼Œå³æ— å¤æƒæ¨¡å¼ï¼Œåˆ™ç›´æŽ¥æŒ‰ç…§åŽŸå§‹ä»£ç è§¦å‘ontick
+	 *	ç¬¬äºŒï¼Œå¦‚æžœæ ‡è®°ä¸º1ï¼Œå³å‰å¤æƒæ¨¡å¼ï¼Œåˆ™å°†ä»£ç è½¬æˆxxxx-ï¼Œå†è§¦å‘ontick
+	 *	ç¬¬ä¸‰ï¼Œå¦‚æžœæ ‡è®°ä¸º2ï¼Œå³åŽå¤æƒæ¨¡å¼ï¼Œåˆ™å°†ä»£ç è½¬æˆxxxx+ï¼Œå†æŠŠtickæ•°æ®åšä¸€ä¸ªä¿®æ­£ï¼Œå†è§¦å‘ontick
 	 */
 	if(_ready)
 	{
 		auto sit = _tick_sub_map.find(stdCode);
-		if (sit != _tick_sub_map.end())
+		if (sit == _tick_sub_map.end())
+			return;
+
+		uint32_t flag = get_adjusting_flag();
+		WTSTickData* adjTick = nullptr;
+
+		//By Wesley
+		//è¿™é‡Œåšä¸€ä¸ªæ‹·è´ï¼Œè™½ç„¶æœ‰ç‚¹å¼€é”€ï¼Œä½†æ˜¯å¯ä»¥è§„é¿æŽ‰ä¸€äº›é—®é¢˜ï¼Œæ¯”å¦‚ontickçš„æ—¶å€™è®¢é˜…tick
+		SubList sids = sit->second;
+		for (auto it = sids.begin(); it != sids.end(); it++)
 		{
-			const SubList& sids = sit->second;
-			for (auto it = sids.begin(); it != sids.end(); it++)
-			{
-				uint32_t sid = it->first;
+			uint32_t sid = it->first;
 				
 
-				auto cit = _ctx_map.find(sid);
-				if (cit != _ctx_map.end())
-				{
-					CtaContextPtr& ctx = (CtaContextPtr&)cit->second;
-					uint32_t opt = it->second.second;
+			auto cit = _ctx_map.find(sid);
+			if (cit != _ctx_map.end())
+			{
+				CtaContextPtr& ctx = (CtaContextPtr&)cit->second;
+				uint32_t opt = it->second.second;
 					
-					if (opt == 0)
+				if (opt == 0)
+				{
+					/*
+					 *	By Wesley @ 2023.06.27
+					 *	å¦‚æžœä½¿ç”¨çº¿ç¨‹æ± ï¼Œåˆ™åˆ°çº¿ç¨‹æ± é‡ŒåŽ»è°ƒåº¦
+					 */
+					if(_pool)
 					{
-						ctx->on_tick(stdCode, curTick);
+						_pool->schedule([ctx, stdCode, curTick]() {
+							ctx->on_tick(stdCode, curTick);
+						});
 					}
 					else
-					{
-						std::string wCode = stdCode;
-						wCode = fmt::format("{}{}", stdCode, opt == 1 ? SUFFIX_QFQ : SUFFIX_HFQ);
-						if (opt == 1)
-						{
-							ctx->on_tick(wCode.c_str(), curTick);
-						}
-						else //(opt == 2)
-						{
-							WTSTickData* newTick = WTSTickData::create(curTick->getTickStruct());
-							WTSTickStruct& newTS = newTick->getTickStruct();
-
-							//ÕâÀï×öÒ»¸ö¸´È¨Òò×ÓµÄ´¦Àí
-							double factor = _data_mgr->get_adjusting_factor(stdCode, get_trading_date());
-							newTS.open *= factor;
-							newTS.high *= factor;
-							newTS.low *= factor;
-							newTS.price *= factor;
-
-							_price_map[wCode] = newTS.price;
-
-							ctx->on_tick(wCode.c_str(), newTick);
-							newTick->release();
-						}
-					}
-					
+						ctx->on_tick(stdCode, curTick);
 				}
+				else
+				{
+					std::string wCode = stdCode;
+					wCode = fmt::format("{}{}", stdCode, opt == 1 ? SUFFIX_QFQ : SUFFIX_HFQ);
+					if (opt == 1)
+					{
+						if (_pool)
+						{
+							_pool->schedule([ctx, wCode, curTick]() {
+								ctx->on_tick(wCode.c_str(), curTick);
+							});
+						}
+						else
+							ctx->on_tick(wCode.c_str(), curTick);
+					}
+					else //(opt == 2)
+					{
+						if (adjTick == nullptr)
+						{
+							WTSTickData* adjTick = WTSTickData::create(curTick->getTickStruct());
+							WTSTickStruct& adjTS = adjTick->getTickStruct();
+							adjTick->setContractInfo(curTick->getContractInfo());
 
-				
-			}
+							//è¿™é‡Œåšä¸€ä¸ªå¤æƒå› å­çš„å¤„ç†
+							double factor = get_exright_factor(stdCode);
+							adjTS.open *= factor;
+							adjTS.high *= factor;
+							adjTS.low *= factor;
+							adjTS.price *= factor;
 
+							adjTS.settle_price *= factor;
+
+							adjTS.pre_close *= factor;
+							adjTS.pre_settle *= factor;
+
+							/*
+							 *	By Wesley @ 2022.08.15
+							 *	è¿™é‡Œå¯¹tickçš„å¤æƒåšä¸€ä¸ªå®Œå–„
+							 */
+							if (flag & 1)
+							{
+								adjTS.total_volume /= factor;
+								adjTS.volume /= factor;
+							}
+
+							if (flag & 2)
+							{
+								adjTS.total_turnover *= factor;
+								adjTS.turn_over *= factor;
+							}
+
+							if (flag & 4)
+							{
+								adjTS.open_interest /= factor;
+								adjTS.diff_interest /= factor;
+								adjTS.pre_interest /= factor;
+							}
+
+							_price_map[wCode] = adjTS.price;
+						}
+
+						if (_pool)
+						{
+							_pool->schedule([ctx, wCode, adjTick]() {
+								ctx->on_tick(wCode.c_str(), adjTick);
+							});
+						}
+						else
+							ctx->on_tick(wCode.c_str(), adjTick);
+
+					}
+				}
+			}				
 		}
+
+		if(nullptr != adjTick)
+			adjTick->release();
+		/*
+		 *	By Wesley @ 223.06.27
+		 *	è¿™é‡Œä¸€å®šè¦ç­‰å¾…çº¿ç¨‹æ± å…¨éƒ¨è°ƒåº¦å®Œæˆ
+		 */
+		if (_pool)
+			_pool->wait();
 	}
 	
-
-	//ÔÝÊ±ÏÈ²»¿¼ÂÇ³É±¾, ÏÈ¼ÆËã³öÀ´
-	/*
-	double dynprofit = 0.0;
-	for(auto v : _ctx_map)
-	{
-		const CtaContextPtr& ctx = v.second;
-		dynprofit += ctx->get_dyn_profit();
-	}
-
-	WTSFundStruct& fundInfo = _port_fund->fundInfo();
-	fundInfo._dynprofit = dynprofit;
-	double dynbal = fundInfo._balance + dynprofit;
-	if (fundInfo._max_dyn_bal != DBL_MAX)
-		fundInfo._max_dyn_bal = std::max(fundInfo._max_dyn_bal, dynbal);
-	else
-		fundInfo._max_dyn_bal = dynbal;
-
-	if (fundInfo._min_dyn_bal != DBL_MAX)
-		fundInfo._min_dyn_bal = std::min(fundInfo._min_dyn_bal, dynbal);
-	else
-		fundInfo._min_dyn_bal = dynbal;
-	*/
 }
 
 void WtCtaEngine::on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar)
 {
-	std::string key = StrUtil::printf("%s-%s-%u", stdCode, period, times);
+	thread_local static char key[64] = { 0 };
+	fmtutil::format_to(key, "{}-{}-{}", stdCode, period, times);
+
 	const SubList& sids = _bar_sub_map[key];
 	for (auto it = sids.begin(); it != sids.end(); it++)
 	{
@@ -515,11 +634,25 @@ void WtCtaEngine::on_bar(const char* stdCode, const char* period, uint32_t times
 		if(cit != _ctx_map.end())
 		{
 			CtaContextPtr& ctx = (CtaContextPtr&)cit->second;
-			ctx->on_bar(stdCode, period, times, newBar);
+			if (_pool)
+			{
+				_pool->schedule([ctx, stdCode, period, times, newBar]() {
+					ctx->on_bar(stdCode, period, times, newBar);
+				});
+			}
+			else
+				ctx->on_bar(stdCode, period, times, newBar);
 		}
 	}
 
-	WTSLogger::info("KBar [%s#%s%d] @ %u closed", stdCode, period, times, period[0] == 'd' ? newBar->date : newBar->time);
+	/*
+	 *	By Wesley @ 223.06.27
+	 *	è¿™é‡Œä¸€å®šè¦ç­‰å¾…çº¿ç¨‹æ± å…¨éƒ¨è°ƒåº¦å®Œæˆ
+	 */
+	if (_pool)
+		_pool->wait();
+
+	WTSLogger::info("KBar [{}] @ {} closed", key, period[0] == 'd' ? newBar->date : newBar->time);
 }
 
 bool WtCtaEngine::isInTrading()
@@ -534,19 +667,39 @@ uint32_t WtCtaEngine::transTimeToMin(uint32_t uTime)
 
 WTSCommodityInfo* WtCtaEngine::get_comm_info(const char* stdCode)
 {
-	return _base_data_mgr->getCommodity(CodeHelper::stdCodeToStdCommID(stdCode).c_str());
+	CodeHelper::CodeInfo codeInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+	return _base_data_mgr->getCommodity(codeInfo._exchg, codeInfo._product);
 }
 
 WTSSessionInfo* WtCtaEngine::get_sess_info(const char* stdCode)
 {
-	WTSCommodityInfo* cInfo = _base_data_mgr->getCommodity(CodeHelper::stdCodeToStdCommID(stdCode).c_str());
+	CodeHelper::CodeInfo codeInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+	WTSCommodityInfo* cInfo = _base_data_mgr->getCommodity(codeInfo._exchg, codeInfo._product);
 	if (cInfo == NULL)
 		return NULL;
 
-	return _base_data_mgr->getSession(cInfo->getSession());
+	return cInfo->getSessionInfo();
 }
 
 uint64_t WtCtaEngine::get_real_time()
 {
 	return TimeUtils::makeTime(_cur_date, _cur_raw_time * 100000 + _cur_secs);
+}
+
+void WtCtaEngine::notify_chart_marker(uint64_t time, const char* straId, double price, const char* icon, const char* tag)
+{
+	if (_notifier)
+		_notifier->notify_chart_marker(time, straId, price, icon, tag);
+}
+
+void WtCtaEngine::notify_chart_index(uint64_t time, const char* straId, const char* idxName, const char* lineName, double val)
+{
+	if (_notifier)
+		_notifier->notify_chart_index(time, straId, idxName, lineName, val);
+}
+
+void WtCtaEngine::notify_trade(const char* straId, const char* stdCode, bool isLong, bool isOpen, uint64_t curTime, double price, const char* userTag)
+{
+	if (_notifier)
+		_notifier->notify_trade(straId, stdCode, isLong, isOpen, curTime, price, userTag);
 }

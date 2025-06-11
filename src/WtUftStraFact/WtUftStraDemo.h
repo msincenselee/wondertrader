@@ -1,10 +1,11 @@
-#pragma once
+﻿#pragma once
 #include <unordered_set>
 #include <memory>
 #include <thread>
 #include <mutex>
 
 #include "../Includes/UftStrategyDefs.h"
+#include "../Share/SpinMutex.hpp"
 
 class WtUftStraDemo : public UftStrategy
 {
@@ -40,6 +41,8 @@ public:
 
 	virtual void on_entrust(uint32_t localid, bool bSuccess, const char* message) override;
 
+	virtual void on_params_updated() override;
+
 private:
 	WTSTickData*	_last_tick;
 	IUftStraCtx*	_ctx;
@@ -48,10 +51,11 @@ private:
 	uint32_t		_freq;
 	int32_t			_offset;
 	double			_lots;
+	double			_prev;
 
 	typedef std::unordered_set<uint32_t> IDSet;
 	IDSet			_orders;
-	std::mutex		_mtx_ords;
+	SpinMutex		_mtx_ords;
 
 	uint64_t		_last_entry_time;
 

@@ -1,18 +1,18 @@
-/*!
+﻿/*!
  * \file HftStraContext.cpp
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
- * 
- * \brief 
+ *
+ * \brief
  */
 #include "HftStraContext.h"
 #include "../Includes/HftStrategyDefs.h"
 
 
-HftStraContext::HftStraContext(WtHftEngine* engine, const char* name, bool bAgent /* = true */)
-	: HftStraBaseCtx(engine, name, bAgent)
+HftStraContext::HftStraContext(WtHftEngine* engine, const char* name, bool bAgent, int32_t slippage)
+	: HftStraBaseCtx(engine, name, bAgent, slippage)
 	, _strategy(NULL)
 {
 }

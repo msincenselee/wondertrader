@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "../WtCore/HftStraBaseCtx.h"
 
 USING_NS_WTP;
@@ -6,7 +6,7 @@ USING_NS_WTP;
 class ExpHftContext : public HftStraBaseCtx
 {
 public:
-	ExpHftContext(WtHftEngine* engine, const char* name, bool bAgent):HftStraBaseCtx(engine, name, bAgent){}
+	ExpHftContext(WtHftEngine* engine, const char* name, bool bAgent, int32_t slippage):HftStraBaseCtx(engine, name, bAgent, slippage){}
 	virtual ~ExpHftContext(){}
 
 public:

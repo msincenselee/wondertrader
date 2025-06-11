@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * \file WTSDataFactory.cpp
  * \project	WonderTrader
  *
@@ -16,7 +16,7 @@
 using namespace std;
 
 
-WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSTickData* tick, WTSSessionInfo* sInfo)
+WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSTickData* tick, WTSSessionInfo* sInfo, bool bAlignSec/* = false*/)
 {
 	if(klineData == NULL || tick == NULL)
 		return NULL;
@@ -37,9 +37,9 @@ WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSTickDa
 		return updateSecData(sInfo, klineData, tick);
 		break;
 	case KP_Minute1:
-		return updateMin1Data(sInfo, klineData, tick);
+		return updateMin1Data(sInfo, klineData, tick, bAlignSec);
 	case KP_Minute5:
-		return updateMin5Data(sInfo, klineData, tick);
+		return updateMin5Data(sInfo, klineData, tick, bAlignSec);
 	case KP_DAY:
 		return updateDayData(sInfo, klineData, tick);
 	default:
@@ -47,7 +47,7 @@ WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSTickDa
 	}
 }
 
-WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSBarStruct* newBasicBar, WTSSessionInfo* sInfo)
+WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSBarStruct* newBasicBar, WTSSessionInfo* sInfo, bool bAlignSec/* = false*/)
 {
 	if (klineData == NULL || newBasicBar == NULL)
 		return NULL;
@@ -59,18 +59,20 @@ WTSBarStruct* WTSDataFactory::updateKlineData(WTSKlineData* klineData, WTSBarStr
 	switch (period)
 	{
 	case KP_Minute1:
-		return updateMin1Data(sInfo, klineData, newBasicBar);
+		return updateMin1Data(sInfo, klineData, newBasicBar, bAlignSec);
 	case KP_Minute5:
-		return updateMin5Data(sInfo, klineData, newBasicBar);
+		return updateMin5Data(sInfo, klineData, newBasicBar, bAlignSec);
 	default:
 		return NULL;
 	}
 }
 
-WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSBarStruct* newBasicBar)
+WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSBarStruct* newBasicBar, bool bAlignSec/* = false*/)
 {
 	if (sInfo == NULL)
 		return NULL;
+
+	auto secMins = sInfo->getSecMinList();
 
 	if(klineData->times() == 1)
 	{
@@ -79,7 +81,7 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 		return klineData->at(-1);
 	}
 
-	//����ʱ�䲽��
+	//计算时间步长
 	uint32_t steplen = klineData->times();
 
 	const WTSBarStruct& curBar = *newBasicBar;
@@ -89,15 +91,45 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 	if (uDate == 19900000)
 		uDate = uTradingDate;
 	uint32_t uTime = TimeUtils::minBarToTime(curBar.time);
-	uint32_t uMinute = sInfo->timeToMinutes(uTime) - 1;
+	uint32_t uMinute = sInfo->timeToMinutes(uTime);
+	uint32_t uBarMin = 0;
 
-	uint32_t uBarMin = (uMinute / steplen)*steplen + steplen;
+	/*
+	 *	By Wesley @ 2023.05.31
+	 *	这里是按小节对齐的核心逻辑
+	 *	1、先增加一个基础分钟数，如果不按小节对齐，就固定为0
+	 *	2、如果按小节对齐，则判断当前分钟处于哪个小节，然后以上个小节结束的分钟数做基础分钟数
+	 *	3、然后根据基础分钟数的差量计算新的对齐分钟数
+	 *	4、最终得到bar的时间戳
+	 */
+	if (bAlignSec)
+	{
+		auto it = std::lower_bound(secMins.begin(), secMins.end(), uMinute);
+		auto secIdx = it - secMins.begin();
+		if (secIdx == 0)
+		{
+			uMinute -= 1;
+			uBarMin = (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+		else
+		{
+			uMinute -= secMins[secIdx - 1];
+			uBarMin = secMins[secIdx - 1] + (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+	}
+	else
+	{
+		uMinute -= 1;
+		uBarMin = (uMinute / steplen)*steplen + steplen;
+	}
+
 	uint64_t uBarTime = sInfo->minuteToTime(uBarMin);
-	//if(uBarTime > uTime && !sInfo->isInAuctionTime(uTime))
-	//{
-	//	//�������ֻ���������ڵ���
-	//	uDate = TimeUtils::getNextDate(uDate, -1);
-	//}
+	if (uBarTime < uTime)
+		uDate = TimeUtils::getNextDate(uDate, 1);
 	uBarTime = TimeUtils::timeToMinBar(uDate, (uint32_t)uBarTime);
 
 	WTSBarStruct* lastBar = NULL;
@@ -109,7 +141,7 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 	bool bNewBar = false;
 	if (lastBar == NULL || lastBar->date != uDate || lastBar->time != uBarTime)
 	{
-		//ֻҪ���ں�ʱ�䶼����,����Ϊ�Ѿ���һ���µ�bar��
+		//只要日期和时间都不符,则认为已经是一条新的bar了
 		lastBar = new WTSBarStruct();
 		bNewBar = true;
 
@@ -152,11 +184,13 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 	return NULL;
 }
 
-WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSTickData* tick)
+WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSTickData* tick, bool bAlignSec /* = false */)
 {
 	//uint32_t curTime = tick->actiontime()/100000;
 
 	uint32_t steplen = klineData->times();
+
+	auto secMins = sInfo->getSecMinList();
 
 	uint32_t uDate = tick->actiondate();
 	uint32_t uTime = tick->actiontime() / 100000;
@@ -177,11 +211,45 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 
 		return NULL;
 	}
+
 	if (sInfo->isLastOfSection(uTime))
 	{
 		uMinute--;
 	}
-	uint32_t uBarMin = (uMinute/steplen)*steplen + steplen;
+
+	uint32_t uBarMin = 0;
+
+	/*
+	 *	By Wesley @ 2023.05.31
+	 *	这里是按小节对齐的核心逻辑
+	 *	1、先增加一个基础分钟数，如果不按小节对齐，就固定为0
+	 *	2、如果按小节对齐，则判断当前分钟处于哪个小节，然后以上个小节结束的分钟数做基础分钟数
+	 *	3、然后根据基础分钟数的差量计算新的对齐分钟数
+	 *	4、最终得到bar的时间戳
+	 */
+	if (bAlignSec)
+	{
+		auto it = std::lower_bound(secMins.begin(), secMins.end(), uMinute);
+		auto secIdx = it - secMins.begin();
+		if (secIdx == 0)
+		{
+			uBarMin = (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+		else
+		{
+			uMinute -= secMins[secIdx - 1];
+			uBarMin = secMins[secIdx - 1] + (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+	}
+	else
+	{
+		uBarMin = (uMinute / steplen)*steplen + steplen;
+	}
+
 	uint32_t uOnlyMin = sInfo->minuteToTime(uBarMin);
 	if(uOnlyMin == 0)
 	{
@@ -193,7 +261,7 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 	uint32_t lastDate = klineData->date(-1);
 	if (lastTime == INVALID_UINT32 || uBarTime > lastTime || tick->tradingdate() > lastDate)
 	{
-		//���ʱ�䲻һ��,������һ��K��
+		//如果时间不一致,则新增一条K线
 		WTSBarStruct *day = new WTSBarStruct;
 		day->date = tick->tradingdate();
 		day->time = uBarTime;
@@ -206,11 +274,14 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 		day->hold = tick->openinterest();
 		day->add = tick->additional();
 
-		return day;
+		klineData->appendBar(*day);
+		delete day;
+
+		return klineData->at(-1);
 	}
 	else if (lastTime != INVALID_UINT32 && uBarTime < lastTime)
 	{
-		//���������ҪΪ�˷�ֹ���ڷ�������
+		//这种情况主要为了防止日期反复出现
 		return NULL;
 	}
 	else
@@ -228,10 +299,12 @@ WTSBarStruct* WTSDataFactory::updateMin1Data(WTSSessionInfo* sInfo, WTSKlineData
 	}
 }
 
-WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSBarStruct* newBasicBar)
+WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSBarStruct* newBasicBar, bool bAlignSec/* = false*/)
 {
 	if (sInfo == NULL)
 		return NULL;
+
+	auto secMins = sInfo->getSecMinList();
 
 	if (klineData->times() == 1)
 	{
@@ -239,7 +312,7 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 		return klineData->at(-1);
 	}
 
-	//����ʱ�䲽��
+	//计算时间步长
 	uint32_t steplen = 5 * klineData->times();
 
 	const WTSBarStruct& curBar = *newBasicBar;
@@ -249,11 +322,44 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 	if (uDate == 19900000)
 		uDate = uTradingDate;
 	uint32_t uTime = TimeUtils::minBarToTime(curBar.time);
-	uint32_t uMinute = sInfo->timeToMinutes(uTime) - 5;
+	uint32_t uMinute = sInfo->timeToMinutes(uTime);
+	uint32_t uBarMin = 0;
+	/*
+	 *	By Wesley @ 2023.05.31
+	 *	这里是按小节对齐的核心逻辑
+	 *	1、先增加一个基础分钟数，如果不按小节对齐，就固定为0
+	 *	2、如果按小节对齐，则判断当前分钟处于哪个小节，然后以上个小节结束的分钟数做基础分钟数
+	 *	3、然后根据基础分钟数的差量计算新的对齐分钟数
+	 *	4、最终得到bar的时间戳
+	 */
+	if (bAlignSec)
+	{
+		auto it = std::lower_bound(secMins.begin(), secMins.end(), uMinute);
+		auto secIdx = it - secMins.begin();
+		if (secIdx == 0)
+		{
+			uMinute -= 5;
+			uBarMin = (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+		else
+		{
+			uMinute -= secMins[secIdx - 1];
+			uBarMin = secMins[secIdx - 1] + (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+	}
+	else
+	{
+		uMinute -= 5;
+		uBarMin = (uMinute / steplen)*steplen + steplen;
+	}
 
-
-	uint32_t uBarMin = (uMinute / steplen)*steplen + steplen;
 	uint64_t uBarTime = sInfo->minuteToTime(uBarMin);
+	if (uBarTime < uTime)
+		uDate = TimeUtils::getNextDate(uDate, 1);
 	uBarTime = TimeUtils::timeToMinBar(uDate, (uint32_t)uBarTime);
 
 	WTSBarStruct* lastBar = NULL;
@@ -266,7 +372,7 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 	if (lastBar == NULL || lastBar->date != uDate || lastBar->time != uBarTime)
 	{
 
-		//ֻҪ���ں�ʱ�䶼����,����Ϊ�Ѿ���һ���µ�bar��
+		//只要日期和时间都不符,则认为已经是一条新的bar了
 		lastBar = new WTSBarStruct();
 		bNewBar = true;
 
@@ -309,8 +415,10 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 	return NULL;
 }
 
-WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSTickData* tick)
+WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData* klineData, WTSTickData* tick, bool bAlignSec /* = false */)
 {
+	auto secMins = sInfo->getSecMinList();
+
 	uint32_t steplen = 5*klineData->times();
 
 	uint32_t uDate = tick->actiondate();
@@ -320,7 +428,39 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 	{
 		uMinute--;
 	}
-	uint32_t uBarMin = (uMinute/steplen)*steplen + steplen;
+
+	uint32_t uBarMin = 0;
+	/*
+	 *	By Wesley @ 2023.05.31
+	 *	这里是按小节对齐的核心逻辑
+	 *	1、先增加一个基础分钟数，如果不按小节对齐，就固定为0
+	 *	2、如果按小节对齐，则判断当前分钟处于哪个小节，然后以上个小节结束的分钟数做基础分钟数
+	 *	3、然后根据基础分钟数的差量计算新的对齐分钟数
+	 *	4、最终得到bar的时间戳
+	 */
+	if (bAlignSec)
+	{
+		auto it = std::lower_bound(secMins.begin(), secMins.end(), uMinute);
+		auto secIdx = it - secMins.begin();
+		if (secIdx == 0)
+		{
+			uBarMin = (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+		else
+		{
+			uMinute -= secMins[secIdx - 1];
+			uBarMin = secMins[secIdx - 1] + (uMinute / steplen)*steplen + steplen;
+			if (uBarMin > secMins[secIdx])
+				uBarMin = secMins[secIdx];
+		}
+	}
+	else
+	{
+		uBarMin = (uMinute / steplen)*steplen + steplen;
+	}
+
 	uint32_t uOnlyMin = sInfo->minuteToTime(uBarMin);
 	if (uOnlyMin == 0)
 	{
@@ -331,7 +471,7 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 	uint64_t lastTime = klineData->time(klineData->size()-1);
 	if(lastTime == INVALID_UINT32 || uBarTime != lastTime)
 	{
-		//���ʱ�䲻һ��,������һ��K��
+		//如果时间不一致,则新增一条K线
 		WTSBarStruct *day = new WTSBarStruct;
 		day->date = tick->tradingdate();
 		day->time = uBarTime;
@@ -344,7 +484,10 @@ WTSBarStruct* WTSDataFactory::updateMin5Data(WTSSessionInfo* sInfo, WTSKlineData
 		day->hold = tick->openinterest();
 		day->add = tick->additional();
 
-		return day;
+		klineData->appendBar(*day);
+		delete day;
+
+		return klineData->at(-1);
 	}
 	else
 	{
@@ -368,7 +511,7 @@ WTSBarStruct* WTSDataFactory::updateDayData(WTSSessionInfo* sInfo, WTSKlineData*
 
 	if(lastDate == INVALID_UINT32 || curDate != lastDate)
 	{
-		//���ʱ�䲻һ��,������һ��K��
+		//如果时间不一致,则新增一条K线
 		WTSBarStruct *day = new WTSBarStruct;
 		day->date = curDate;
 		day->time = 0;
@@ -462,12 +605,13 @@ uint32_t WTSDataFactory::getPrevMinute(uint32_t curMinute, int period /* = 1 */)
 	}
 }
 
-WTSKlineData* WTSDataFactory::extractKlineData(WTSKlineSlice* baseKline, WTSKlinePeriod period, uint32_t times, WTSSessionInfo* sInfo, bool bIncludeOpen /* = true */)
+WTSKlineData* WTSDataFactory::extractKlineData(WTSKlineSlice* baseKline, WTSKlinePeriod period, uint32_t times, WTSSessionInfo* sInfo, 
+		bool bIncludeOpen /* = true */, bool bAlignSec /* = false */)
 {
 	if(baseKline == NULL || baseKline->size() == 0)
 		return NULL;
 
-	//һ��,����Ҫת��
+	//一倍,则不需要转换
 	if(times <= 1 || period == KP_Tick)
 	{
 		return NULL;
@@ -479,31 +623,35 @@ WTSKlineData* WTSDataFactory::extractKlineData(WTSKlineSlice* baseKline, WTSKlin
 	}
 	else if(period == KP_Minute1)
 	{
-		return extractMin1Data(baseKline, times, sInfo, bIncludeOpen);
+		return extractMin1Data(baseKline, times, sInfo, bIncludeOpen, bAlignSec);
 	}
 	else if(period == KP_Minute5)
 	{
-		return extractMin5Data(baseKline, times, sInfo, bIncludeOpen);
+		return extractMin5Data(baseKline, times, sInfo, bIncludeOpen, bAlignSec);
 	}
 	
 	return NULL;
 }
 
-WTSKlineData* WTSDataFactory::extractMin1Data(WTSKlineSlice* baseKline, uint32_t times, WTSSessionInfo* sInfo, bool bIncludeOpen /* = true */)
+WTSKlineData* WTSDataFactory::extractMin1Data(WTSKlineSlice* baseKline, uint32_t times, WTSSessionInfo* sInfo, bool bIncludeOpen /* = true */, bool bAlignSec /* = false */)
 {
-	//���ݺ�Լ�����ȡ�г���Ϣ
+	//根据合约代码获取市场信息
 	if(sInfo == NULL)
 		return NULL;
 
-	//����ʱ�䲽��
+	//计算时间步长
 	uint32_t steplen = times;
+
+	/*
+	 *	By Wesley @ 2023.05.31
+	 *	要增加一个按照小节对齐的重采样方式
+	 *	一般逻辑就是每个小节开始重新计算条数，然后在小节结束时，强制对齐
+	 */
+	auto secMins = sInfo->getSecMinList();
 
 	WTSKlineData* ret = WTSKlineData::create(baseKline->code(), 0);
 	ret->setPeriod(KP_Minute1, times);
 
-	//WTSKlineData::WTSBarList& bars = baseKline->getDataRef();
-	//WTSKlineData::WTSBarList::const_iterator it = bars.begin();
-	//for(; it != bars.end(); it++,count++)
 	for (auto i = 0; i < baseKline->size(); i++)
 	{
 		const WTSBarStruct& curBar = *baseKline->at(i);
@@ -513,15 +661,45 @@ WTSKlineData* WTSDataFactory::extractMin1Data(WTSKlineSlice* baseKline, uint32_t
 		if(uDate == 19900000)
 			uDate = uTradingDate;
 		uint32_t uTime = TimeUtils::minBarToTime(curBar.time);
-		uint32_t uMinute = sInfo->timeToMinutes(uTime)-1;
+		uint32_t uMinute = sInfo->timeToMinutes(uTime);
+		uint32_t uBarMin = 0;
 
-		uint32_t uBarMin = (uMinute/steplen)*steplen + steplen;
+		/*
+		 *	By Wesley @ 2023.05.31
+		 *	这里是按小节对齐的核心逻辑
+		 *	1、先增加一个基础分钟数，如果不按小节对齐，就固定为0
+		 *	2、如果按小节对齐，则判断当前分钟处于哪个小节，然后以上个小节结束的分钟数做基础分钟数
+		 *	3、然后根据基础分钟数的差量计算新的对齐分钟数
+		 *	4、最终得到bar的时间戳
+		 */
+		if(bAlignSec)
+		{
+			auto it = std::lower_bound(secMins.begin(), secMins.end(), uMinute);
+			auto secIdx = it - secMins.begin();
+			if(secIdx == 0)
+			{
+				uMinute -= 1;
+				uBarMin = (uMinute / steplen)*steplen + steplen;
+				if (uBarMin > secMins[secIdx])
+					uBarMin = secMins[secIdx];
+			}
+			else
+			{
+				uMinute -= secMins[secIdx - 1];
+				uBarMin = secMins[secIdx - 1] + (uMinute / steplen)*steplen + steplen;
+				if (uBarMin > secMins[secIdx])
+					uBarMin = secMins[secIdx];
+			}
+		}
+		else
+		{
+			uMinute -= 1;
+			uBarMin = (uMinute / steplen)*steplen + steplen;
+		}
+
 		uint64_t uBarTime = sInfo->minuteToTime(uBarMin);
-		//if(uBarTime > uTime && !sInfo->isInAuctionTime(uTime))
-		//{
-		//	//�������ֻ���������ڵ���
-		//	uDate = TimeUtils::getNextDate(uDate, -1);
-		//}
+		if (uBarTime < uTime)
+			uDate = TimeUtils::getNextDate(uDate, 1);
 		uBarTime = TimeUtils::timeToMinBar(uDate, (uint32_t)uBarTime);
 
 		WTSBarStruct* lastBar = NULL;
@@ -531,14 +709,9 @@ WTSKlineData* WTSDataFactory::extractMin1Data(WTSKlineSlice* baseKline, uint32_t
 		}
 
 		bool bNewBar = false;
-		if(lastBar == NULL || lastBar->date != uDate || lastBar->time != uBarTime)
+		if(lastBar == NULL || lastBar->time != uBarTime)
 		{
-			//if(lastBar)
-			//{
-			//	lastBar->time = sInfo->originalTime(lastBar->time);
-			//}
-
-			//ֻҪ���ں�ʱ�䶼����,����Ϊ�Ѿ���һ���µ�bar��
+			//只要日期和时间都不符,则认为已经是一条新的bar了
 			lastBar = new WTSBarStruct();
 			bNewBar = true;
 
@@ -568,11 +741,11 @@ WTSKlineData* WTSDataFactory::extractMin1Data(WTSKlineSlice* baseKline, uint32_t
 		}
 	}
 
-	//������һ������
+	//检查最后一条数据
 	{
 		WTSBarStruct* lastRawBar = baseKline->at(-1);
 		WTSBarStruct* lastDesBar = ret->at(-1);
-		//���Ŀ��K�ߵ����һ�����ݵ����ڻ���ʱ�����ԭʼK�����һ�������ڻ�ʱ��
+		//如果目标K线的最后一条数据的日期或者时间大于原始K线最后一条的日期或时间
 		if ( lastDesBar->date > lastRawBar->date || lastDesBar->time > lastRawBar->time)
 		{
 			if (!bIncludeOpen)
@@ -586,20 +759,23 @@ WTSKlineData* WTSDataFactory::extractMin1Data(WTSKlineSlice* baseKline, uint32_t
 	return ret;
 }
 
-WTSKlineData* WTSDataFactory::extractMin5Data(WTSKlineSlice* baseKline, uint32_t times, WTSSessionInfo* sInfo, bool bIncludeOpen /* = true */)
+WTSKlineData* WTSDataFactory::extractMin5Data(WTSKlineSlice* baseKline, uint32_t times, WTSSessionInfo* sInfo, bool bIncludeOpen /* = true */, bool bAlignSec /* = false */)
 {
 	if(sInfo == NULL)
 		return NULL;
 
-	//����ʱ�䲽��
+	//计算时间步长
 	uint32_t steplen = 5*times;
+	/*
+	 *	By Wesley @ 2023.05.31
+	 *	要增加一个按照小节对齐的重采样方式
+	 *	一般逻辑就是每个小节开始重新计算条数，然后在小节结束时，强制对齐
+	 */
+	auto secMins = sInfo->getSecMinList();
 
 	WTSKlineData* ret = WTSKlineData::create(baseKline->code(), 0);
 	ret->setPeriod(KP_Minute5, times);
 
-	//WTSKlineData::WTSBarList& bars = baseKline->getDataRef();
-	//WTSKlineData::WTSBarList::const_iterator it = bars.begin();
-	//for (; it != bars.end(); it++)
 	for (auto i = 0; i < baseKline->size(); i++)
 	{
 		const WTSBarStruct& curBar = *baseKline->at(i);
@@ -609,11 +785,44 @@ WTSKlineData* WTSDataFactory::extractMin5Data(WTSKlineSlice* baseKline, uint32_t
 		if(uDate == 19900000)
 			uDate = uTradingDate;
 		uint32_t uTime = TimeUtils::minBarToTime(curBar.time);
-		uint32_t uMinute = sInfo->timeToMinutes(uTime)-5;
+		uint32_t uMinute = sInfo->timeToMinutes(uTime);
+		uint32_t uBarMin = 0;
+		/*
+		 *	By Wesley @ 2023.05.31
+		 *	这里是按小节对齐的核心逻辑
+		 *	1、先增加一个基础分钟数，如果不按小节对齐，就固定为0
+		 *	2、如果按小节对齐，则判断当前分钟处于哪个小节，然后以上个小节结束的分钟数做基础分钟数
+		 *	3、然后根据基础分钟数的差量计算新的对齐分钟数
+		 *	4、最终得到bar的时间戳
+		 */
+		if (bAlignSec)
+		{
+			auto it = std::lower_bound(secMins.begin(), secMins.end(), uMinute);
+			auto secIdx = it - secMins.begin();
+			if (secIdx == 0)
+			{
+				uMinute -= 5;
+				uBarMin = (uMinute / steplen)*steplen + steplen;
+				if (uBarMin > secMins[secIdx])
+					uBarMin = secMins[secIdx];
+			}
+			else
+			{
+				uMinute -= secMins[secIdx - 1];
+				uBarMin = secMins[secIdx - 1] + (uMinute / steplen)*steplen + steplen;
+				if (uBarMin > secMins[secIdx])
+					uBarMin = secMins[secIdx];
+			}
+		}
+		else
+		{
+			uMinute -= 5;
+			uBarMin = (uMinute / steplen)*steplen + steplen;
+		}
 
-
-		uint32_t uBarMin = (uMinute/steplen)*steplen+steplen;
 		uint64_t uBarTime = sInfo->minuteToTime(uBarMin);
+		if (uBarTime < uTime)
+			uDate = TimeUtils::getNextDate(uDate, 1);
 		uBarTime = TimeUtils::timeToMinBar(uDate, (uint32_t)uBarTime);
 
 		WTSBarStruct* lastBar = NULL;
@@ -623,14 +832,9 @@ WTSKlineData* WTSDataFactory::extractMin5Data(WTSKlineSlice* baseKline, uint32_t
 		}
 
 		bool bNewBar = false;
-		if(lastBar == NULL || lastBar->date != uDate || lastBar->time != uBarTime)
+		if(lastBar == NULL || lastBar->time != uBarTime)
 		{
-			//if(lastBar)
-			//{
-			//	lastBar->time = sInfo->originalTime(lastBar->time);
-			//}
-
-			//ֻҪ���ں�ʱ�䶼����,����Ϊ�Ѿ���һ���µ�bar��
+			//只要日期和时间都不符,则认为已经是一条新的bar了
 			lastBar = new WTSBarStruct();
 			bNewBar = true;
 
@@ -660,11 +864,11 @@ WTSKlineData* WTSDataFactory::extractMin5Data(WTSKlineSlice* baseKline, uint32_t
 		}
 	}
 
-	//������һ������
+	//检查最后一条数据
 	{
 		WTSBarStruct* lastRawBar = baseKline->at(-1);
 		WTSBarStruct* lastDesBar = ret->at(-1);
-		//���Ŀ��K�ߵ����һ�����ݵ����ڻ���ʱ�����ԭʼK�����һ�������ڻ�ʱ��
+		//如果目标K线的最后一条数据的日期或者时间大于原始K线最后一条的日期或时间
 		if (lastDesBar->date > lastRawBar->date || lastDesBar->time > lastRawBar->time)
 		{
 			if (!bIncludeOpen)
@@ -679,7 +883,7 @@ WTSKlineData* WTSDataFactory::extractMin5Data(WTSKlineSlice* baseKline, uint32_t
 
 WTSKlineData* WTSDataFactory::extractDayData(WTSKlineSlice* baseKline, uint32_t times, bool bIncludeOpen /* = true */)
 {
-	//����ʱ�䲽��
+	//计算时间步长
 	uint32_t steplen = times;
 
 	WTSKlineData* ret = WTSKlineData::create(baseKline->code(), 0);
@@ -704,7 +908,7 @@ WTSKlineData* WTSDataFactory::extractDayData(WTSKlineSlice* baseKline, uint32_t 
 		bool bNewBar = false;
 		if(lastBar == NULL || count == steplen)
 		{
-			//ֻҪ���ں�ʱ�䶼����,����Ϊ�Ѿ���һ���µ�bar��
+			//只要日期和时间都不符,则认为已经是一条新的bar了
 			lastBar = new WTSBarStruct();
 			bNewBar = true;
 
@@ -738,7 +942,8 @@ WTSKlineData* WTSDataFactory::extractDayData(WTSKlineSlice* baseKline, uint32_t 
 	return ret;
 }
 
-WTSKlineData* WTSDataFactory::extractKlineData(WTSTickSlice* ayTicks, uint32_t seconds, WTSSessionInfo* sInfo, bool bUnixTime /* = false */)
+WTSKlineData* WTSDataFactory::extractKlineData(WTSTickSlice* ayTicks, uint32_t seconds, 
+	WTSSessionInfo* sInfo, bool bUnixTime /* = false */, bool bAlignSec /* = false */)
 {
 	if(ayTicks == NULL || ayTicks->size() == 0)
 		return NULL;
@@ -752,8 +957,6 @@ WTSKlineData* WTSDataFactory::extractKlineData(WTSTickSlice* ayTicks, uint32_t s
 	ret->setPeriod(KP_Tick, seconds);
 	ret->setUnixTime(bUnixTime);
 
-	//WTSArray::Iterator it = ayTicks->begin();
-	//for(; it != ayTicks->end(); it++)
 	for (uint32_t i = 0; i < ayTicks->size(); i++)
 	{
 		WTSBarStruct* lastBar = NULL;
@@ -766,17 +969,22 @@ WTSKlineData* WTSDataFactory::extractKlineData(WTSTickSlice* ayTicks, uint32_t s
 		uint32_t uDate = curTick->trading_date;
 		uint32_t curSeconds = sInfo->timeToSeconds(curTick->action_time/1000);
 		uint32_t barSeconds = (curSeconds/seconds)*seconds + seconds;
-		uint32_t barTime = sInfo->secondsToTime(barSeconds);
+		uint64_t barTime = sInfo->secondsToTime(barSeconds);
 
-		//������������K��ʱ���С��tick���ݵ�ʱ���
+		//如果计算出来的K线时间戳小于tick数据的时间戳
+		uint32_t actDt = curTick->action_date;
+		if (barTime < curTick->action_time / 1000)
+		{
+			actDt = TimeUtils::getNextDate(actDt);
+		}
+
 		if(bUnixTime)
 		{
-			uint32_t actDt = curTick->action_date;
-			if (barTime < curTick->action_time / 1000)
-			{
-				actDt = TimeUtils::getNextDate(actDt);
-			}
-			barTime = (uint32_t)(TimeUtils::makeTime(actDt, barTime * 1000) / 1000);
+			barTime = (uint64_t)TimeUtils::makeTime(actDt, (long)(barTime * 1000)) / 1000;
+		}
+		else
+		{
+			barTime = (uint64_t)actDt * 1000000 + barTime;
 		}
 
 		bool bNewBar = false;

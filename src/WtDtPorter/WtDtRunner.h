@@ -15,6 +15,8 @@
 #include "../WtDtCore/ParserAdapter.h"
 #include "../WtDtCore/StateMonitor.h"
 #include "../WtDtCore/UDPCaster.h"
+#include "../WtDtCore/IndexFactory.h"
+#include "../WtDtCore/ShmCaster.h"
 
 #include "../WTSTools/WTSHotMgr.h"
 #include "../WTSTools/WTSBaseDataMgr.h"
@@ -32,7 +34,7 @@ public:
 	~WtDtRunner();
 
 public:
-	void	initialize(const char* cfgFile, const char* logCfg, const char* modDir = "");
+	void	initialize(const char* cfgFile, const char* logCfg, const char* modDir = "", bool bCfgFile = true, bool bLogCfgFile = true);
 	void	start(bool bAsync = false, bool bAlldayMode = false);
 
 	bool	createExtParser(const char* id);
@@ -73,16 +75,18 @@ public:
 
 private:
 	void initDataMgr(WTSVariant* config, bool bAlldayMode = false);
-	void initParsers(const char* filename);
+	void initParsers(WTSVariant* cfg);
 
 private:
 
 	WTSBaseDataMgr	_bd_mgr;
-//	WTSHotMgr		_hot_mgr;
+	WTSHotMgr		_hot_mgr;
 	boost::asio::io_service _async_io;
 	StateMonitor	_state_mon;
 	UDPCaster		_udp_caster;
+	ShmCaster		_shm_caster;
 	DataManager		_data_mgr;
+	IndexFactory	_idx_factory;
 	ParserAdapterMgr	_parsers;
 
 	FuncParserEvtCallback	_cb_parser_evt;
@@ -98,5 +102,7 @@ private:
 	typedef std::shared_ptr<ExpDumper> ExpDumperPtr;
 	typedef std::map<std::string, ExpDumperPtr>  ExpDumpers;
 	ExpDumpers		_dumpers;
+
+	bool _to_exit;
 };
 

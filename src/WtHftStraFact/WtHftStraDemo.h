@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <unordered_set>
 #include <memory>
 #include <thread>
@@ -14,6 +14,8 @@ public:
 
 private:
 	void	check_orders();
+
+	void	do_calc(IHftStraCtx* ctx);
 
 public:
 	virtual const char* getName() override;

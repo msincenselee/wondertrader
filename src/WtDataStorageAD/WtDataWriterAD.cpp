@@ -1,4 +1,4 @@
-#include "WtDataWriterAD.h"
+ï»¿#include "WtDataWriterAD.h"
 #include "LMDBKeys.h"
 
 #include "../Includes/WTSSessionInfo.hpp"
@@ -7,7 +7,6 @@
 #include "../Includes/WTSVariant.hpp"
 #include "../Share/BoostFile.hpp"
 #include "../Share/StrUtil.hpp"
-#include "../Share/IniHelper.hpp"
 #include "../Share/decimal.h"
 
 #include "../Includes/IBaseDataMgr.h"
@@ -58,6 +57,8 @@ WtDataWriterAD::WtDataWriterAD()
 	, _disable_min5(false)
 	, _disable_tick(false)
 	, _tick_cache_block(nullptr)
+	, _tick_mapsize(16*1024*1024)
+	, _kline_mapsize(8*1024*1024)
 {
 }
 
@@ -87,6 +88,12 @@ bool WtDataWriterAD::init(WTSVariant* params, IDataWriterSink* sink)
 	_disable_min1 = params->getBoolean("disablemin1");
 	_disable_min5 = params->getBoolean("disablemin5");
 	_disable_day = params->getBoolean("disableday");
+
+	if (params->has("tickmapsize"))
+		_tick_mapsize = params->getUInt32("tickmapsize");
+
+	if (params->has("klinemapsize"))
+		_kline_mapsize = params->getUInt32("klinemapsize");
 
 	loadCache();
 
@@ -276,7 +283,7 @@ void* WtDataWriterAD::resizeRTBlock(BoostMFPtr& mfPtr, uint32_t nCount)
 	if (mfPtr == NULL)
 		return NULL;
 
-	//µ÷ÓÃ¸Ãº¯ÊıÖ®Ç°,Ó¦¸ÃÒÑ¾­ÉêÇëÁËĞ´ËøÁË
+	//è°ƒç”¨è¯¥å‡½æ•°ä¹‹å‰,åº”è¯¥å·²ç»ç”³è¯·äº†å†™é”äº†
 	RTBlockHeader* tBlock = (RTBlockHeader*)mfPtr->addr();
 	if (tBlock->_capacity >= nCount)
 		return mfPtr->addr();
@@ -330,24 +337,24 @@ bool WtDataWriterAD::writeTick(WTSTickData* curTick, uint32_t procFlag)
 
 			WTSCommodityInfo* commInfo = ct->getCommInfo();
 
-			//ÔÙ¸ù¾İ×´Ì¬¹ıÂË
+			//å†æ ¹æ®çŠ¶æ€è¿‡æ»¤
 			if (!_sink->canSessionReceive(commInfo->getSession()))
 				break;
 
-			//ÏÈ¸üĞÂ»º´æ
+			//å…ˆæ›´æ–°ç¼“å­˜
 			if (!updateTickCache(ct, curTick, procFlag))
 				break;
 
-			//Ğ´µ½tick»º´æ
+			//å†™åˆ°tickç¼“å­˜
 			if(!_disable_tick)
 				pipeToTicks(ct, curTick);
 
-			//Ğ´µ½KÏß»º´æ
+			//å†™åˆ°Kçº¿ç¼“å­˜
 			updateBarCache(ct, curTick);
 
 			_sink->broadcastTick(curTick);
 
-			static faster_hashmap<std::string, uint64_t> _tcnt_map;
+			static wt_hashmap<std::string, uint64_t> _tcnt_map;
 			_tcnt_map[curTick->exchg()]++;
 			if (_tcnt_map[curTick->exchg()] % _log_group_size == 0)
 			{
@@ -405,18 +412,18 @@ void WtDataWriterAD::pushTask(TaskInfo task)
 
 void WtDataWriterAD::pipeToTicks(WTSContractInfo* ct, WTSTickData* curTick)
 {
-	//Ö±½ÓÂäµØ
+	//ç›´æ¥è½åœ°
 	WtLMDBPtr db = get_t_db(ct->getExchg(), ct->getCode());
 	if (db)
 	{
-		//ÕâÀïÒª°ÑÊ±¼ä×ª³É±ãÒËÊ±¼ä£¬²¢ÓÃ½»Ò×ÈÕ×÷Îªdate
-		//ÕâÑù¿ÉÒÔ¸ù¾İ½»Ò×ÈÕÉ¸Ñ¡ÀúÊ·tickÊı¾İ
+		//è¿™é‡Œè¦æŠŠæ—¶é—´è½¬æˆä¾¿å®œæ—¶é—´ï¼Œå¹¶ç”¨äº¤æ˜“æ—¥ä½œä¸ºdate
+		//è¿™æ ·å¯ä»¥æ ¹æ®äº¤æ˜“æ—¥ç­›é€‰å†å²tickæ•°æ®
 		uint32_t actTime = curTick->actiontime();
-		uint32_t offTime = ct->getCommInfo()->getSessionInfo()->offsetTime(actTime / 100000, true) + actTime % 100000;
+		uint32_t offTime = ct->getCommInfo()->getSessionInfo()->offsetTime(actTime / 100000, true) * 100000 + actTime % 100000;
 
 		LMDBHftKey key(ct->getExchg(), ct->getCode(), curTick->tradingdate(), offTime);
 		WtLMDBQuery query(*db);
-		if (!query.put((void*)&key, sizeof(key), &curTick->getTickStruct(), sizeof(WTSTickStruct)))
+		if (!query.put_and_commit((void*)&key, sizeof(key), &curTick->getTickStruct(), sizeof(WTSTickStruct)))
 		{
 			pipe_writer_log(_sink, LL_ERROR, "pipe tick of {} to db failed: {}", ct->getFullCode(), db->errmsg());
 		}
@@ -439,13 +446,13 @@ void WtDataWriterAD::pipeToTicks(WTSContractInfo* ct, WTSTickData* curTick)
 
 void WtDataWriterAD::pipeToDayBars(WTSContractInfo* ct, const WTSBarStruct& bar)
 {
-	//Ö±½ÓÂäµØ
+	//ç›´æ¥è½åœ°
 	WtLMDBPtr db = get_k_db(ct->getExchg(), KP_DAY);
 	if (db)
 	{
 		LMDBBarKey key(ct->getExchg(), ct->getCode(), bar.date);
 		WtLMDBQuery query(*db);
-		if (!query.put((void*)&key, sizeof(key), (void*)&bar, sizeof(WTSBarStruct)))
+		if (!query.put_and_commit((void*)&key, sizeof(key), (void*)&bar, sizeof(WTSBarStruct)))
 		{
 			pipe_writer_log(_sink, LL_ERROR, "pipe day bar @ {} of {} to db failed", bar.date, ct->getFullCode());
 		}
@@ -472,13 +479,13 @@ void WtDataWriterAD::pipeToDayBars(WTSContractInfo* ct, const WTSBarStruct& bar)
 
 void WtDataWriterAD::pipeToM1Bars(WTSContractInfo* ct, const WTSBarStruct& bar)
 {
-	//Ö±½ÓÂäµØ
+	//ç›´æ¥è½åœ°
 	WtLMDBPtr db = get_k_db(ct->getExchg(), KP_Minute1);
 	if(db)
 	{
 		LMDBBarKey key(ct->getExchg(), ct->getCode(), (uint32_t)bar.time);
 		WtLMDBQuery query(*db);
-		if(!query.put((void*)&key, sizeof(key), (void*)&bar, sizeof(WTSBarStruct)))
+		if(!query.put_and_commit((void*)&key, sizeof(key), (void*)&bar, sizeof(WTSBarStruct)))
 		{
 			pipe_writer_log(_sink, LL_ERROR, "pipe m1 bar @ {} of {} to db failed", bar.time, ct->getFullCode());
 		}
@@ -505,13 +512,13 @@ void WtDataWriterAD::pipeToM1Bars(WTSContractInfo* ct, const WTSBarStruct& bar)
 
 void WtDataWriterAD::pipeToM5Bars(WTSContractInfo* ct, const WTSBarStruct& bar)
 {
-	//Ö±½ÓÂäµØ
+	//ç›´æ¥è½åœ°
 	WtLMDBPtr db = get_k_db(ct->getExchg(), KP_Minute5);
 	if (db)
 	{
 		LMDBBarKey key(ct->getExchg(), ct->getCode(), (uint32_t)bar.time);
 		WtLMDBQuery query(*db);
-		if (!query.put((void*)&key, sizeof(key), (void*)&bar, sizeof(bar)))
+		if (!query.put_and_commit((void*)&key, sizeof(key), (void*)&bar, sizeof(bar)))
 		{
 			pipe_writer_log(_sink, LL_ERROR, "pipe m5 bar @ {} of {} to db failed", bar.time, ct->getFullCode());
 		}
@@ -546,9 +553,9 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 	if (minutes == INVALID_UINT32)
 		return;
 
-	//µ±ÃëÊıÎª0,Òª×¨ÃÅ´¦Àí,±ÈÈç091500000,Õâ±ÊtickÒªËã×÷0915µÄ
-	//Èç¹ûÊÇĞ¡½Ú½áÊø,ÒªËã×÷Ğ¡½Ú½áÊøÄÇÒ»·ÖÖÓ,ÒòÎª¾­³£»áÓĞ³¬¹ı½áÊøÊ±¼äµÄ¼Û¸ñ½øÀ´,Èç113000500
-	//²»ÄÜÍ¬Ê±´¦Àí,ËùÒÔÓÃor	
+	//å½“ç§’æ•°ä¸º0,è¦ä¸“é—¨å¤„ç†,æ¯”å¦‚091500000,è¿™ç¬”tickè¦ç®—ä½œ0915çš„
+	//å¦‚æœæ˜¯å°èŠ‚ç»“æŸ,è¦ç®—ä½œå°èŠ‚ç»“æŸé‚£ä¸€åˆ†é’Ÿ,å› ä¸ºç»å¸¸ä¼šæœ‰è¶…è¿‡ç»“æŸæ—¶é—´çš„ä»·æ ¼è¿›æ¥,å¦‚113000500
+	//ä¸èƒ½åŒæ—¶å¤„ç†,æ‰€ä»¥ç”¨or	
 	if (sInfo->isLastOfSection(curTime))
 	{
 		minutes--;
@@ -556,7 +563,7 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 
 	std::string key = StrUtil::printf("%s.%s", curTick->exchg(), curTick->code());
 
-	//¸üĞÂÈÕÏß
+	//æ›´æ–°æ—¥çº¿
 	if (!_disable_day && _d1_cache._cache_block)
 	{
 		StdUniqueLock lock(_d1_cache._mtx);
@@ -587,7 +594,7 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		}
 		WTSBarStruct* lastBar = &item._bar;
 
-		//¼ì²éÈÕÆÚÊÇ·ñÒ»ÖÂ
+		//æ£€æŸ¥æ—¥æœŸæ˜¯å¦ä¸€è‡´
 		uint32_t barDate = curTick->tradingdate();
 
 		bool bNewBar = false;
@@ -599,8 +606,8 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		WTSBarStruct* newBar = lastBar;
 		if (bNewBar)
 		{
-			//ÕâÀïÒª½«lastBarÍùÍâĞ´
-			//Èç¹ûÊÇĞÂµÄºÏÔ¼£¬ËµÃ÷»¹Ã»Êı¾İ£¬²»ÍùÍâĞ´
+			//è¿™é‡Œè¦å°†lastBarå¾€å¤–å†™
+			//å¦‚æœæ˜¯æ–°çš„åˆçº¦ï¼Œè¯´æ˜è¿˜æ²¡æ•°æ®ï¼Œä¸å¾€å¤–å†™
 			if (!bNewCode)
 			{
 				pipeToDayBars(ct, *lastBar);
@@ -620,9 +627,21 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		}
 		else
 		{
+			/*
+			*	By Wesley @ 2023.07.05
+			*	å‘ç°æŸäº›å“ç§ï¼Œå¼€ç›˜æ—¶å¯èƒ½ä¼šæ¨é€priceä¸º0çš„tickè¿›æ¥
+			*	ä¼šå¯¼è‡´openå’Œlowéƒ½æ˜¯0ï¼Œæ‰€ä»¥è¦å†åšä¸€ä¸ªåˆ¤æ–­
+			*/
+			if (decimal::eq(newBar->open, 0))
+				newBar->open = curTick->price();
+
+			if (decimal::eq(newBar->low, 0))
+				newBar->low = curTick->price();
+			else
+				newBar->low = std::min(curTick->price(), newBar->low);
+
 			newBar->close = curTick->price();
 			newBar->high = max(curTick->price(), newBar->high);
-			newBar->low = min(curTick->price(), newBar->low);
 
 			newBar->vol += curTick->volume();
 			newBar->money += curTick->turnover();
@@ -633,7 +652,7 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		}
 	}
 
-	//¸üĞÂ1·ÖÖÓÏß
+	//æ›´æ–°1åˆ†é’Ÿçº¿
 	if (!_disable_min1 && _m1_cache._cache_block)
 	{
 		StdUniqueLock lock(_m1_cache._mtx);
@@ -665,7 +684,7 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		WTSBarStruct* lastBar = &item._bar;
 
 
-		//Æ´½Ó1·ÖÖÓÏß
+		//æ‹¼æ¥1åˆ†é’Ÿçº¿
 		uint32_t barMins = minutes + 1;
 		uint64_t barTime = sInfo->minuteToTime(barMins);
 		uint32_t barDate = uDate;
@@ -684,8 +703,8 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		WTSBarStruct* newBar = lastBar;
 		if (bNewBar)
 		{
-			//ÕâÀïÒª½«lastBarÍùÍâĞ´
-			//Èç¹ûÊÇĞÂµÄºÏÔ¼£¬ËµÃ÷»¹Ã»Êı¾İ£¬²»ÍùÍâĞ´
+			//è¿™é‡Œè¦å°†lastBarå¾€å¤–å†™
+			//å¦‚æœæ˜¯æ–°çš„åˆçº¦ï¼Œè¯´æ˜è¿˜æ²¡æ•°æ®ï¼Œä¸å¾€å¤–å†™
 			if (!bNewCode)
 			{
 				pipeToM1Bars(ct, *lastBar);
@@ -693,9 +712,9 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 				uint32_t lastMins = sInfo->timeToMinutes(lastBar->time % 10000, false);
 				if(lastMins > barMins)
 				{
-					//Èç¹ûÉÏÒ»ÌõKÏßµÄ·ÖÖÓÊı´óÓÚµ±Ç°KÏßµÄ·ÖÖÓÊı
-					//ËµÃ÷½»Ò×ÈÕ»»ÁË
-					//ĞèÒª±£´æÈÕÏßÁË
+					//å¦‚æœä¸Šä¸€æ¡Kçº¿çš„åˆ†é’Ÿæ•°å¤§äºå½“å‰Kçº¿çš„åˆ†é’Ÿæ•°
+					//è¯´æ˜äº¤æ˜“æ—¥æ¢äº†
+					//éœ€è¦ä¿å­˜æ—¥çº¿äº†
 				}
 			}
 
@@ -713,9 +732,21 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		}
 		else
 		{
+			/*
+			*	By Wesley @ 2023.07.05
+			*	å‘ç°æŸäº›å“ç§ï¼Œå¼€ç›˜æ—¶å¯èƒ½ä¼šæ¨é€priceä¸º0çš„tickè¿›æ¥
+			*	ä¼šå¯¼è‡´openå’Œlowéƒ½æ˜¯0ï¼Œæ‰€ä»¥è¦å†åšä¸€ä¸ªåˆ¤æ–­
+			*/
+			if (decimal::eq(newBar->open, 0))
+				newBar->open = curTick->price();
+
+			if (decimal::eq(newBar->low, 0))
+				newBar->low = curTick->price();
+			else
+				newBar->low = std::min(curTick->price(), newBar->low);
+
 			newBar->close = curTick->price();
 			newBar->high = max(curTick->price(), newBar->high);
-			newBar->low = min(curTick->price(), newBar->low);
 
 			newBar->vol += curTick->volume();
 			newBar->money += curTick->turnover();
@@ -724,7 +755,7 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		}
 	}
 
-	//¸üĞÂ5·ÖÖÓÏß
+	//æ›´æ–°5åˆ†é’Ÿçº¿
 	if (!_disable_min5 && _m5_cache._cache_block)
 	{
 		StdUniqueLock lock(_m5_cache._mtx);
@@ -755,7 +786,7 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		}
 		WTSBarStruct* lastBar = &item._bar;
 
-		//Æ´½Ó5·ÖÖÓÏß
+		//æ‹¼æ¥5åˆ†é’Ÿçº¿
 		uint32_t barMins = (minutes / 5) * 5 + 5;
 		uint64_t barTime = sInfo->minuteToTime(barMins);
 		uint32_t barDate = uDate;
@@ -774,8 +805,8 @@ void WtDataWriterAD::updateBarCache(WTSContractInfo* ct, WTSTickData* curTick)
 		WTSBarStruct* newBar = lastBar;
 		if (bNewBar)
 		{
-			//ÕâÀïÒª½«lastBarÍùÍâĞ´
-			//Èç¹ûÊÇĞÂµÄºÏÔ¼£¬ËµÃ÷»¹Ã»Êı¾İ£¬²»ÍùÍâĞ´
+			//è¿™é‡Œè¦å°†lastBarå¾€å¤–å†™
+			//å¦‚æœæ˜¯æ–°çš„åˆçº¦ï¼Œè¯´æ˜è¿˜æ²¡æ•°æ®ï¼Œä¸å¾€å¤–å†™
 			if(!bNewCode)
 				pipeToM5Bars(ct, *lastBar);
 
@@ -915,8 +946,8 @@ bool WtDataWriterAD::updateTickCache(WTSContractInfo* ct, WTSTickData* curTick, 
 	}
 	else
 	{
-		//Èç¹û»º´æÀïµÄÊı¾İÈÕÆÚ´óÓÚ×îĞÂĞĞÇéµÄÈÕÆÚ
-		//»òÕß»º´æÀïµÄÊ±¼ä´óÓÚµÈÓÚ×îĞÂĞĞÇéµÄÊ±¼ä,Êı¾İ¾Í²»ĞèÒª´¦Àí
+		//å¦‚æœç¼“å­˜é‡Œçš„æ•°æ®æ—¥æœŸå¤§äºæœ€æ–°è¡Œæƒ…çš„æ—¥æœŸ
+		//æˆ–è€…ç¼“å­˜é‡Œçš„æ—¶é—´å¤§äºç­‰äºæœ€æ–°è¡Œæƒ…çš„æ—¶é—´,æ•°æ®å°±ä¸éœ€è¦å¤„ç†
 		WTSSessionInfo* sInfo = _bd_mgr->getSessionByCode(curTick->code(), curTick->exchg());
 		uint32_t tdate = sInfo->getOffsetDate(curTick->actiondate(), curTick->actiontime() / 100000);
 		if (tdate > curTick->tradingdate())
@@ -931,16 +962,16 @@ bool WtDataWriterAD::updateTickCache(WTSContractInfo* ct, WTSTickData* curTick, 
 			return false;
 		}
 
-		//Ê±¼ä´ÁÏàÍ¬,µ«ÊÇ³É½»Á¿´óÓÚµÈÓÚÔ­À´µÄ,ÕâÖÖÇé¿öÒ»°ãÊÇÖ£ÉÌËù,ÕâÀïµÄ´¦Àí·½Ê½¾ÍÊÇÊ±¼ä´Á+200ºÁÃë
+		//æ—¶é—´æˆ³ç›¸åŒ,ä½†æ˜¯æˆäº¤é‡å¤§äºç­‰äºåŸæ¥çš„,è¿™ç§æƒ…å†µä¸€èˆ¬æ˜¯éƒ‘å•†æ‰€,è¿™é‡Œçš„å¤„ç†æ–¹å¼å°±æ˜¯æ—¶é—´æˆ³+200æ¯«ç§’
 		//By Wesley @ 2021.12.21
-		//½ñÌì·¢ÏÖ¾ÓÈ»Ò»Ãë³öÏÖÁË4±Ê£¬ÊµÔÚÊÇÓĞµãÎŞÓï
-		//Ö»ÄÜ°Ñ500ºÁÃëµÄ±ä»¯Á¿¸Ä³É200£¬²¢ÇÒ¸Ä³É·¢ÉúÊ±¼äĞ¡ÓÚµÈÓÚÉÏÒ»±ÊµÄÅĞ¶Ï
+		//ä»Šå¤©å‘ç°å±…ç„¶ä¸€ç§’å‡ºç°äº†4ç¬”ï¼Œå®åœ¨æ˜¯æœ‰ç‚¹æ— è¯­
+		//åªèƒ½æŠŠ500æ¯«ç§’çš„å˜åŒ–é‡æ”¹æˆ200ï¼Œå¹¶ä¸”æ”¹æˆå‘ç”Ÿæ—¶é—´å°äºç­‰äºä¸Šä¸€ç¬”çš„åˆ¤æ–­
 		if(newTick.action_date == item._tick.action_date && newTick.action_time <= item._tick.action_time && newTick.total_volume >= item._tick.total_volume)
 		{
 			newTick.action_time += 200;
 		}
 
-		//ÕâÀï¾ÍÒª¿´Ğè²»ĞèÒªÔ¤´¦ÀíÁË
+		//è¿™é‡Œå°±è¦çœ‹éœ€ä¸éœ€è¦é¢„å¤„ç†äº†
 		if(procFlag == 0)
 		{
 			memcpy(&item._tick, &newTick, sizeof(WTSTickStruct));
@@ -955,8 +986,8 @@ bool WtDataWriterAD::updateTickCache(WTSContractInfo* ct, WTSTickData* curTick, 
 		}
 		else if (procFlag == 2)
 		{
-			//×Ô¶¯ÀÛ¼Ó
-			//Èç¹û×Ü³É½»Á¿Îª0£¬ÔòĞèÒªÀÛ¼ÓÉÏÒ»±ÊµÄ×Ü³É½»Á¿
+			//è‡ªåŠ¨ç´¯åŠ 
+			//å¦‚æœæ€»æˆäº¤é‡ä¸º0ï¼Œåˆ™éœ€è¦ç´¯åŠ ä¸Šä¸€ç¬”çš„æ€»æˆäº¤é‡
 			if(decimal::eq(newTick.total_volume, 0))
 				newTick.total_volume = newTick.volume + item._tick.total_volume;
 
@@ -1008,7 +1039,7 @@ WtDataWriterAD::WtLMDBPtr WtDataWriterAD::get_k_db(const char* exchg, WTSKlinePe
 	WtLMDBPtr dbPtr(new WtLMDB(false));
 	std::string path = StrUtil::printf("%s%s/%s/", _base_dir.c_str(), subdir.c_str(), exchg);
 	boost::filesystem::create_directories(path);
-	if(!dbPtr->open(path.c_str()))
+	if(!dbPtr->open(path.c_str(), _kline_mapsize))
 	{
 		if (_sink) pipe_writer_log(_sink, LL_ERROR, "Opening {} db at {} failed: {}", subdir, path, dbPtr->errmsg());
 		return std::move(WtLMDBPtr());
@@ -1028,12 +1059,12 @@ WtDataWriterAD::WtLMDBPtr WtDataWriterAD::get_t_db(const char* exchg, const char
 	WtLMDBPtr dbPtr(new WtLMDB(false));
 	std::string path = StrUtil::printf("%sticks/%s/%s", _base_dir.c_str(), exchg, code);
 	boost::filesystem::create_directories(path);
-	if (!dbPtr->open(path.c_str()))
+	if (!dbPtr->open(path.c_str(), _tick_mapsize))
 	{
 		if (_sink) pipe_writer_log(_sink, LL_ERROR, "Opening tick db at {} failed: %s", path, dbPtr->errmsg());
 		return std::move(WtLMDBPtr());
 	}
 
-	_tick_dbs[exchg] = dbPtr;
+	_tick_dbs[key] = dbPtr;
 	return std::move(dbPtr);
 }

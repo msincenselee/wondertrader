@@ -1,11 +1,11 @@
-/*!
+ï»¿/*!
  * \file HftStraBaseCtx.h
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
- * 
- * \brief 
+ *
+ * \brief
  */
 #pragma once
 
@@ -26,14 +26,14 @@ class TraderAdapter;
 class HftStraBaseCtx : public IHftStraCtx, public ITrdNotifySink
 {
 public:
-	HftStraBaseCtx(WtHftEngine* engine, const char* name, bool bAgent);
+	HftStraBaseCtx(WtHftEngine* engine, const char* name, bool bAgent, int32_t slippage);
 	virtual ~HftStraBaseCtx();
 
 	void setTrader(TraderAdapter* trader);
 
 public:
 	//////////////////////////////////////////////////////////////////////////
-	//IHftStraCtx ½Ó¿Ú
+	//IHftStraCtx æ¥å£
 	virtual uint32_t id() override;
 
 	virtual void on_init() override;
@@ -57,64 +57,64 @@ public:
 	virtual OrderIDs stra_cancel(const char* stdCode, bool isBuy, double qty) override;
 
 	/*
-	 *	ÏÂµ¥½Ó¿Ú: ÂòÈë
+	 *	ä¸‹å•æ¥å£: ä¹°å…¥
 	 *
-	 *	@stdCode	ºÏÔ¼´úÂë
-	 *	@price		ÏÂµ¥¼Û¸ñ£¬0ÔòÊÇÊĞ¼Ûµ¥
-	 *	@qty		ÏÂµ¥ÊıÁ¿
-	 *	@flag		ÏÂµ¥±êÖ¾: 0-normal£¬1-fak£¬2-fok£¬Ä¬ÈÏ0
+	 *	@stdCode	åˆçº¦ä»£ç 
+	 *	@price		ä¸‹å•ä»·æ ¼ï¼Œ0åˆ™æ˜¯å¸‚ä»·å•
+	 *	@qty		ä¸‹å•æ•°é‡
+	 *	@flag		ä¸‹å•æ ‡å¿—: 0-normalï¼Œ1-fakï¼Œ2-fokï¼Œé»˜è®¤0
 	 */
-	virtual OrderIDs stra_buy(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
+	virtual OrderIDs stra_buy(const char* stdCode, double price, double qty, const char* userTag, int flag = 0, bool bForceClose = false) override;
 
 	/*
-	 *	ÏÂµ¥½Ó¿Ú: Âô³ö
+	 *	ä¸‹å•æ¥å£: å–å‡º
 	 *
-	 *	@stdCode	ºÏÔ¼´úÂë
-	 *	@price		ÏÂµ¥¼Û¸ñ£¬0ÔòÊÇÊĞ¼Ûµ¥
-	 *	@qty		ÏÂµ¥ÊıÁ¿
-	 *	@flag		ÏÂµ¥±êÖ¾: 0-normal£¬1-fak£¬2-fok£¬Ä¬ÈÏ0
+	 *	@stdCode	åˆçº¦ä»£ç 
+	 *	@price		ä¸‹å•ä»·æ ¼ï¼Œ0åˆ™æ˜¯å¸‚ä»·å•
+	 *	@qty		ä¸‹å•æ•°é‡
+	 *	@flag		ä¸‹å•æ ‡å¿—: 0-normalï¼Œ1-fakï¼Œ2-fokï¼Œé»˜è®¤0
 	 */
-	virtual OrderIDs stra_sell(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
+	virtual OrderIDs stra_sell(const char* stdCode, double price, double qty, const char* userTag, int flag = 0, bool bForceClose = false) override;
 
 	/*
-	 *	ÏÂµ¥½Ó¿Ú: ¿ª¶à
+	 *	ä¸‹å•æ¥å£: å¼€å¤š
 	 *
-	 *	@stdCode	ºÏÔ¼´úÂë
-	 *	@price		ÏÂµ¥¼Û¸ñ£¬0ÔòÊÇÊĞ¼Ûµ¥
-	 *	@qty		ÏÂµ¥ÊıÁ¿
-	 *	@flag		ÏÂµ¥±êÖ¾: 0-normal£¬1-fak£¬2-fok
+	 *	@stdCode	åˆçº¦ä»£ç 
+	 *	@price		ä¸‹å•ä»·æ ¼ï¼Œ0åˆ™æ˜¯å¸‚ä»·å•
+	 *	@qty		ä¸‹å•æ•°é‡
+	 *	@flag		ä¸‹å•æ ‡å¿—: 0-normalï¼Œ1-fakï¼Œ2-fok
 	 */
 	virtual uint32_t	stra_enter_long(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
 
 	/*
-	 *	ÏÂµ¥½Ó¿Ú: ¿ª¿Õ
+	 *	ä¸‹å•æ¥å£: å¼€ç©º
 	 *
-	 *	@stdCode	ºÏÔ¼´úÂë
-	 *	@price		ÏÂµ¥¼Û¸ñ£¬0ÔòÊÇÊĞ¼Ûµ¥
-	 *	@qty		ÏÂµ¥ÊıÁ¿
-	 *	@flag		ÏÂµ¥±êÖ¾: 0-normal£¬1-fak£¬2-fok
+	 *	@stdCode	åˆçº¦ä»£ç 
+	 *	@price		ä¸‹å•ä»·æ ¼ï¼Œ0åˆ™æ˜¯å¸‚ä»·å•
+	 *	@qty		ä¸‹å•æ•°é‡
+	 *	@flag		ä¸‹å•æ ‡å¿—: 0-normalï¼Œ1-fakï¼Œ2-fok
 	 */
 	virtual uint32_t	stra_enter_short(const char* stdCode, double price, double qty, const char* userTag, int flag = 0) override;
 
 	/*
-	 *	ÏÂµ¥½Ó¿Ú: Æ½¶à
+	 *	ä¸‹å•æ¥å£: å¹³å¤š
 	 *
-	 *	@stdCode	ºÏÔ¼´úÂë
-	 *	@price		ÏÂµ¥¼Û¸ñ£¬0ÔòÊÇÊĞ¼Ûµ¥
-	 *	@qty		ÏÂµ¥ÊıÁ¿
-	 *	@isToday	ÊÇ·ñ½ñ²Ö£¬Ä¬ÈÏfalse
-	 *	@flag		ÏÂµ¥±êÖ¾: 0-normal£¬1-fak£¬2-fok£¬Ä¬ÈÏ0
+	 *	@stdCode	åˆçº¦ä»£ç 
+	 *	@price		ä¸‹å•ä»·æ ¼ï¼Œ0åˆ™æ˜¯å¸‚ä»·å•
+	 *	@qty		ä¸‹å•æ•°é‡
+	 *	@isToday	æ˜¯å¦ä»Šä»“ï¼Œé»˜è®¤false
+	 *	@flag		ä¸‹å•æ ‡å¿—: 0-normalï¼Œ1-fakï¼Œ2-fokï¼Œé»˜è®¤0
 	 */
 	virtual uint32_t	stra_exit_long(const char* stdCode, double price, double qty, const char* userTag, bool isToday = false, int flag = 0) override;
 
 	/*
-	 *	ÏÂµ¥½Ó¿Ú: Æ½¿Õ
+	 *	ä¸‹å•æ¥å£: å¹³ç©º
 	 *
-	 *	@stdCode	ºÏÔ¼´úÂë
-	 *	@price		ÏÂµ¥¼Û¸ñ£¬0ÔòÊÇÊĞ¼Ûµ¥
-	 *	@qty		ÏÂµ¥ÊıÁ¿
-	 *	@isToday	ÊÇ·ñ½ñ²Ö£¬Ä¬ÈÏfalse
-	 *	@flag		ÏÂµ¥±êÖ¾: 0-normal£¬1-fak£¬2-fok£¬Ä¬ÈÏ0
+	 *	@stdCode	åˆçº¦ä»£ç 
+	 *	@price		ä¸‹å•ä»·æ ¼ï¼Œ0åˆ™æ˜¯å¸‚ä»·å•
+	 *	@qty		ä¸‹å•æ•°é‡
+	 *	@isToday	æ˜¯å¦ä»Šä»“ï¼Œé»˜è®¤false
+	 *	@flag		ä¸‹å•æ ‡å¿—: 0-normalï¼Œ1-fakï¼Œ2-fokï¼Œé»˜è®¤0
 	 */
 	virtual uint32_t	stra_exit_short(const char* stdCode, double price, double qty, const char* userTag, bool isToday = false, int flag = 0) override;
 
@@ -132,11 +132,18 @@ public:
 
 	virtual WTSTickData* stra_get_last_tick(const char* stdCode) override;
 
+	/*
+	 *	è·å–åˆ†æœˆåˆçº¦ä»£ç 
+	 */
+	virtual std::string		stra_get_rawcode(const char* stdCode) override;
+
 	virtual void stra_log_info(const char* message) override;
 	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_warn(const char* message) override;
 	virtual void stra_log_error(const char* message) override;
 
-	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false) override;
+	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, int flag = 3) override;
+	virtual double stra_get_position_avgpx(const char* stdCode) override;
 	virtual double stra_get_position_profit(const char* stdCode) override;
 	virtual double stra_get_price(const char* stdCode) override;
 	virtual double stra_get_undone(const char* stdCode) override;
@@ -167,26 +174,26 @@ public:
 
 	virtual void on_position(const char* stdCode, bool isLong, double prevol, double preavail, double newvol, double newavail, uint32_t tradingday) override;
 
-private:
+protected:
 	template<typename... Args>
 	void log_debug(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_debug(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_debug(buffer);
 	}
 
 	template<typename... Args>
 	void log_info(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_info(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_info(buffer);
 	}
 
 	template<typename... Args>
 	void log_error(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_error(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_error(buffer);
 	}
 
 protected:
@@ -242,23 +249,24 @@ protected:
 	uint32_t		_context_id;
 	WtHftEngine*	_engine;
 	TraderAdapter*	_trader;
+	int32_t			_slippage;
 
-	faster_hashmap<LongKey, std::string> _code_map;
+	wt_hashmap<std::string, std::string> _code_map;
 
 	BoostFilePtr	_sig_logs;
 	BoostFilePtr	_close_logs;
 	BoostFilePtr	_trade_logs;
 	BoostFilePtr	_fund_logs;
 
-	//ÓÃ»§Êı¾İ
-	typedef faster_hashmap<LongKey, std::string> StringHashMap;
+	//ç”¨æˆ·æ•°æ®
+	typedef wt_hashmap<std::string, std::string> StringHashMap;
 	StringHashMap	_user_datas;
 	bool			_ud_modified;
 
-	bool			_data_agent;	//Êı¾İÍĞ¹Ü
+	bool			_data_agent;	//æ•°æ®æ‰˜ç®¡
 
-	//tick¶©ÔÄÁĞ±í
-	faster_hashset<LongKey> _tick_subs;
+	//tickè®¢é˜…åˆ—è¡¨
+	wt_hashset<std::string> _tick_subs;
 
 private:
 	typedef struct _DetailInfo
@@ -294,7 +302,7 @@ private:
 			_dynprofit = 0;
 		}
 	} PosInfo;
-	typedef faster_hashmap<LongKey, PosInfo> PositionMap;
+	typedef wt_hashmap<std::string, PosInfo> PositionMap;
 	PositionMap		_pos_map;
 
 	typedef struct _OrderTag
@@ -309,7 +317,7 @@ private:
 			wt_strcpy(_usertag, usertag);
 		}
 	} OrderTag;
-	//typedef faster_hashmap<uint32_t, LongKey> OrderMap;
+	//typedef wt_hashmap<uint32_t, std::string> OrderMap;
 	//OrderMap		_orders;
 	boost::circular_buffer<OrderTag> _orders;
 
@@ -327,7 +335,7 @@ private:
 
 	StraFundInfo		_fund_info;
 
-	typedef faster_hashmap<LongKey, double> PriceMap;
+	typedef wt_hashmap<std::string, double> PriceMap;
 	PriceMap		_price_map;
 };
 

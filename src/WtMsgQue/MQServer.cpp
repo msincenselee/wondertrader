@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * \file EventCaster.cpp
  * \project	WonderTrader
  *
@@ -39,6 +39,7 @@ MQServer::MQServer(MQManager* mgr)
 	, _mgr(mgr)
 	, _confirm(false)
 	, m_bTerminated(false)
+	, m_bTimeout(false)
 {
 	_id = makeMQSvrId();
 }
@@ -105,6 +106,7 @@ void MQServer::publish(const char* topic, const void* data, uint32_t dataLen)
 	{
 		StdUniqueLock lock(m_mtxCast);
 		m_dataQue.push(PubData(topic, data, dataLen));
+		m_bTimeout = false;
 	}
 
 	if(m_thrdCast == NULL)
@@ -119,8 +121,19 @@ void MQServer::publish(const char* topic, const void* data, uint32_t dataLen)
 				if(m_dataQue.empty() || (cnt == 0 && _confirm))
 				{
 					StdUniqueLock lock(m_mtxCast);
-					m_condCast.wait(lock);
-					continue;
+					m_bTimeout = true;
+					m_condCast.wait_for(lock, std::chrono::seconds(60));
+					//如果有新的数据进来，timeout会被改为false
+					//如果没有新的数据进来，timeout会保持为true
+					if (m_bTimeout)
+					{
+						//等待超时以后，广播心跳包
+						m_dataQue.push(PubData("HEARTBEAT", "", 0));
+					}
+					else
+					{
+						continue;
+					}
 				}	
 
 				PubDataQue tmpQue;
@@ -140,7 +153,7 @@ void MQServer::publish(const char* topic, const void* data, uint32_t dataLen)
 							m_sendBuf.resize(m_sendBuf.size() * 2);
 						MQPacket* pack = (MQPacket*)m_sendBuf.data();
 						strncpy(pack->_topic, pubData._topic.c_str(), 32);
-						pack->_length = pubData._data.size();
+						pack->_length = (uint32_t)pubData._data.size();
 						memcpy(&pack->_data, pubData._data.data(), pubData._data.size());
 						int bytes_snd = 0;
 						for(;;)

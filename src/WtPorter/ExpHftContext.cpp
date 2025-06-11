@@ -1,4 +1,4 @@
-#include "ExpHftContext.h"
+ï»¿#include "ExpHftContext.h"
 #include "WtRtRunner.h"
 #include "../Share/StrUtil.hpp"
 
@@ -9,13 +9,10 @@ void ExpHftContext::on_bar(const char* code, const char* period, uint32_t times,
 	if (newBar == NULL)
 		return;
 
-	std::string realPeriod;
-	if (period[0] == 'd')
-		realPeriod = StrUtil::printf("%s%u", period, times);
-	else
-		realPeriod = StrUtil::printf("m%u", times);
+	thread_local static char realPeriod[8] = { 0 };
+	fmtutil::format_to(realPeriod, "{}{}", period, times);
 
-	getRunner().ctx_on_bar(_context_id, code, realPeriod.c_str(), newBar, ET_HFT);
+	getRunner().ctx_on_bar(_context_id, code, realPeriod, newBar, ET_HFT);
 
 	HftStraBaseCtx::on_bar(code, period, times, newBar);
 }
@@ -45,7 +42,7 @@ void ExpHftContext::on_init()
 {
 	HftStraBaseCtx::on_init();
 
-	//ÏòÍâ²¿»Øµ÷
+	//å‘å¤–éƒ¨å›è°ƒ
 	getRunner().ctx_on_init(_context_id, ET_HFT);
 }
 
@@ -53,13 +50,13 @@ void ExpHftContext::on_session_begin(uint32_t uTDate)
 {
 	HftStraBaseCtx::on_session_begin(uTDate);
 
-	//ÏòÍâ²¿»Øµ÷
+	//å‘å¤–éƒ¨å›è°ƒ
 	getRunner().ctx_on_session_event(_context_id, uTDate, true, ET_HFT);
 }
 
 void ExpHftContext::on_session_end(uint32_t uTDate)
 {
-	//ÏòÍâ²¿»Øµ÷
+	//å‘å¤–éƒ¨å›è°ƒ
 	getRunner().ctx_on_session_event(_context_id, uTDate, false, ET_HFT);
 
 	HftStraBaseCtx::on_session_end(uTDate);

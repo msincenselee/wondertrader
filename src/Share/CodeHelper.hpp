@@ -1,33 +1,33 @@
-/*!
+ï»¿/*!
  * \file CodeHelper.hpp
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
  * 
- * \brief ´úÂë¸¨ÖúÀà,·â×°µ½Ò»Æğ·½±ãÊ¹ÓÃ
+ * \brief ä»£ç è¾…åŠ©ç±»,å°è£…åˆ°ä¸€èµ·æ–¹ä¾¿ä½¿ç”¨
  */
 #pragma once
 #include "fmtlib.h"
 #include "StrUtil.hpp"
 #include "../Includes/WTSTypes.h"
+#include "../Includes/IHotMgr.h"
 
 #include <boost/xpressive/xpressive_dynamic.hpp>
 
+
 USING_NS_WTP;
 
-//Ö÷Á¦ºÏÔ¼ºó×º
+//ä¸»åŠ›åˆçº¦åç¼€
 static const char* SUFFIX_HOT = ".HOT";
-static const char* FILE_SUF_HOT = "_HOT";
 
-//´ÎÖ÷Á¦ºÏÔ¼ºó×º
+//æ¬¡ä¸»åŠ›åˆçº¦åç¼€
 static const char* SUFFIX_2ND = ".2ND";
-static const char* FILE_SUF_2ND = "_2ND";
 
-//Ç°¸´È¨ºÏÔ¼´úÂëºó×º
+//å‰å¤æƒåˆçº¦ä»£ç åç¼€
 static const char SUFFIX_QFQ = '-';
 
-//ºó¸´È¨ºÏÔ¼´úÂëºó×º
+//åå¤æƒåˆçº¦ä»£ç åç¼€
 static const char SUFFIX_HFQ = '+';
 
 class CodeHelper
@@ -35,54 +35,46 @@ class CodeHelper
 public:
 	typedef struct _CodeInfo
 	{
-		char _code[MAX_INSTRUMENT_LENGTH];		//ºÏÔ¼´úÂë
-		char _exchg[MAX_INSTRUMENT_LENGTH];		//½»Ò×Ëù´úÂë
-		char _product[MAX_INSTRUMENT_LENGTH];	//Æ·ÖÖ´úÂë
+		char _code[MAX_INSTRUMENT_LENGTH];		//åˆçº¦ä»£ç 
+		char _exchg[MAX_INSTRUMENT_LENGTH];		//äº¤æ˜“æ‰€ä»£ç 
+		char _product[MAX_INSTRUMENT_LENGTH];	//å“ç§ä»£ç 
+		char _ruletag[MAX_INSTRUMENT_LENGTH];	//
+		char _fullpid[MAX_INSTRUMENT_LENGTH];	//
 
 		//By Wesley @ 2021.12.25
-		//È¥µôºÏÔ¼ÀàĞÍ£¬ÕâÀï²»ÔÙ½øĞĞÅĞ¶Ï
-		//Õû¸öCodeHelper»áÖØ¹¹
-		//ContractCategory	_category;		//ºÏÔ¼ÀàĞÍ
+		//å»æ‰åˆçº¦ç±»å‹ï¼Œè¿™é‡Œä¸å†è¿›è¡Œåˆ¤æ–­
+		//æ•´ä¸ªCodeHelperä¼šé‡æ„
+		//ContractCategory	_category;		//åˆçº¦ç±»å‹
 		//union
 		//{
-		//	uint8_t	_hotflag;	//Ö÷Á¦±ê¼Ç£¬0-·ÇÖ÷Á¦£¬1-Ö÷Á¦£¬2-´ÎÖ÷Á¦
-		//	uint8_t	_exright;	//ÊÇ·ñÊÇ¸´È¨´úÂë,ÈçSH600000Q: 0-²»¸´È¨, 1-Ç°¸´È¨, 2-ºó¸´È¨
+		//	uint8_t	_hotflag;	//ä¸»åŠ›æ ‡è®°ï¼Œ0-éä¸»åŠ›ï¼Œ1-ä¸»åŠ›ï¼Œ2-æ¬¡ä¸»åŠ›
+		//	uint8_t	_exright;	//æ˜¯å¦æ˜¯å¤æƒä»£ç ,å¦‚SH600000Q: 0-ä¸å¤æƒ, 1-å‰å¤æƒ, 2-åå¤æƒ
 		//};
 
 		/*
 		 *	By Wesley @ 2022.03.07
-		 *	È¡ÏûÔ­À´µÄunion
-		 *	Òª°ÑÖ÷Á¦±ê¼ÇºÍ¸´È¨±ê¼Ç·Ö¿ª´¦Àí
-		 *	ÒòÎªºóÃæÒª¶ÔÖ÷Á¦ºÏÔ¼×ö¸´È¨´¦ÀíÁË
+		 *	å–æ¶ˆåŸæ¥çš„union
+		 *	è¦æŠŠä¸»åŠ›æ ‡è®°å’Œå¤æƒæ ‡è®°åˆ†å¼€å¤„ç†
+		 *	å› ä¸ºåé¢è¦å¯¹ä¸»åŠ›åˆçº¦åšå¤æƒå¤„ç†äº†
 		 */
-		uint8_t	_hotflag;	//Ö÷Á¦±ê¼Ç£¬0-·ÇÖ÷Á¦£¬1-Ö÷Á¦£¬2-´ÎÖ÷Á¦
-		uint8_t	_exright;	//ÊÇ·ñÊÇ¸´È¨´úÂë,ÈçSH600000Q: 0-²»¸´È¨, 1-Ç°¸´È¨, 2-ºó¸´È¨
+		uint8_t	_exright;	//æ˜¯å¦æ˜¯å¤æƒä»£ç ,å¦‚SH600000Q: 0-ä¸å¤æƒ, 1-å‰å¤æƒ, 2-åå¤æƒ
 
-		//ÊÇ·ñÊÇ¸´È¨´úÂë
+		//æ˜¯å¦æ˜¯å¤æƒä»£ç 
 		inline bool isExright() const { return _exright != 0; }
 
-		//ÊÇ·ñÇ°¸´È¨´úÂë
+		//æ˜¯å¦å‰å¤æƒä»£ç 
 		inline bool isForwardAdj() const { return _exright == 1; }
 
-		//ÊÇ·ñºó¸´È¨´úÂë
+		//æ˜¯å¦åå¤æƒä»£ç 
 		inline bool isBackwardAdj() const { return _exright == 2; }
 
-		//ÊÇ·ñÖ÷Á¦´úÂë
-		inline bool isHot() const { return _hotflag ==1; }
-		//ÊÇ·ñ´ÎÖ÷Á¦´úÂë
-		inline bool isSecond() const { return _hotflag == 2; }
-
-		//ÊÇ·ñÆÕÍ¨´úÂë
-		inline bool isFlat() const { return _hotflag == 0; }
-
-		//±ê×¼Æ·ÖÖID
-		inline const char* stdCommID() const
+		//æ ‡å‡†å“ç§ID
+		inline const char* stdCommID()
 		{
-			static char buffer[64] = { 0 };
-			if (strlen(buffer) == 0)
-				sprintf(buffer, "%s.%s", _exchg, _product);
+			if (strlen(_fullpid) == 0)
+				fmtutil::format_to(_fullpid, "{}.{}", _exchg, _product);
 
-			return buffer;
+			return _fullpid;
 		}
 
 		_CodeInfo()
@@ -94,6 +86,11 @@ public:
 		inline void clear()
 		{
 			memset(this, 0, sizeof(_CodeInfo));
+		}
+
+		inline bool hasRule() const
+		{
+			return strlen(_ruletag) > 0;
 		}
 	} CodeInfo;
 
@@ -127,43 +124,14 @@ private:
 
 public:
 	/*
-	 *	ÊÇ·ñÊÇ±ê×¼ÆÚ»õÖ÷Á¦ºÏÔ¼´úÂë
-	 */
-	static inline bool	isStdFutHotCode(const char* stdCode)
-	{
-		//return StrUtil::endsWith(stdCode, SUFFIX_HOT, false);
-		static std::size_t SUF_LEN = strlen(SUFFIX_HOT);
-		auto len = strlen(stdCode);
-		if (len < SUF_LEN)
-			return false;
-
-		return memcmp(stdCode + len - SUF_LEN, SUFFIX_HOT, SUF_LEN) == 0;
-	}
-
-	/*
-	 *	ÊÇ·ñÊÇ±ê×¼ÆÚ»õ´ÎÖ÷Á¦ºÏÔ¼´úÂë
-	 */
-	static inline bool	isStdFut2ndCode(const char* stdCode)
-	{
-		//return StrUtil::endsWith(stdCode, SUFFIX_2ND, false);
-		static std::size_t SUF_LEN = strlen(SUFFIX_2ND);
-		auto len = strlen(stdCode);
-		if (len < SUF_LEN)
-			return false;
-
-		return memcmp(stdCode + len - SUF_LEN, SUFFIX_2ND, SUF_LEN) == 0;
-	}
-
-	/*
-	 *	ÊÇ·ñÊÇÆÚ»õÆÚÈ¨ºÏÔ¼´úÂë
+	 *	æ˜¯å¦æ˜¯æœŸè´§æœŸæƒåˆçº¦ä»£ç 
 	 *	CFFEX.IO2007.C.4000
 	 */
 	static bool	isStdChnFutOptCode(const char* code)
 	{
-		/* ¶¨ÒåÕıÔò±í´ïÊ½ */
+		/* å®šä¹‰æ­£åˆ™è¡¨è¾¾å¼ */
 		//static cregex reg_stk = cregex::compile("^[A-Z]+.[A-z]+\\d{4}.(C|P).\\d+$");	//CFFEX.IO2007.C.4000
 		//return 	regex_match(code, reg_stk);
-		auto len = strlen(code);
 		char state = 0;
 		std::size_t i = 0;
 		for(; ; i++)
@@ -198,7 +166,7 @@ public:
 			}
 			else if (state == 3)
 			{
-				if ('A' <= ch && ch <= 'Z')
+				if ('A' <= ch && ch <= 'z')
 					continue;
 
 				if ('0' <= ch && ch <= '9')
@@ -254,46 +222,46 @@ public:
 	}
 
 	/*
-	 *	ÊÇ·ñÊÇ±ê×¼·ÖÔÂÆÚ»õºÏÔ¼´úÂë
+	 *	æ˜¯å¦æ˜¯æ ‡å‡†åˆ†æœˆæœŸè´§åˆçº¦ä»£ç 
 	 *	//CFFEX.IF.2007
 	 */
 	static inline bool	isStdMonthlyFutCode(const char* code)
 	{
 		using namespace boost::xpressive;
-		/* ¶¨ÒåÕıÔò±í´ïÊ½ */
+		/* å®šä¹‰æ­£åˆ™è¡¨è¾¾å¼ */
 		static cregex reg_stk = cregex::compile("^[A-Z]+.[A-z]+.\\d{4}$");	//CFFEX.IO.2007
 		return 	regex_match(code, reg_stk);
 	}
 
 	/*
-	 *	±ê×¼´úÂë×ª±ê×¼Æ·ÖÖID
-	 *	ÈçSHFE.ag.1912->SHFE.ag
-	 *	Èç¹ûÊÇ¼ò»¯µÄ¹ÉÆ±´úÂë£¬ÈçSSE.600000£¬Ôò×ª³ÉSSE.STK
+	 *	æ ‡å‡†ä»£ç è½¬æ ‡å‡†å“ç§ID
+	 *	å¦‚SHFE.ag.1912->SHFE.ag
+	 *	å¦‚æœæ˜¯ç®€åŒ–çš„è‚¡ç¥¨ä»£ç ï¼Œå¦‚SSE.600000ï¼Œåˆ™è½¬æˆSSE.STK
 	 */
-	static inline std::string stdCodeToStdCommID(const char* stdCode)
+	static inline std::string stdCodeToStdCommID2(const char* stdCode)
 	{
 		auto idx = find(stdCode, '.', true);
 		auto idx2 = find(stdCode, '.', false);
-		if(idx != idx2)
+		if (idx != idx2)
 		{
-			//Ç°ºóÁ½¸ö.²»ÊÇÍ¬Ò»¸ö£¬ËµÃ÷ÊÇÈı¶ÎµÄ´úÂë
-			//ÌáÈ¡Ç°Á½¶Î×÷ÎªÆ·ÖÖ´úÂë
-			return std::string (stdCode, idx);
+			//å‰åä¸¤ä¸ª.ä¸æ˜¯åŒä¸€ä¸ªï¼Œè¯´æ˜æ˜¯ä¸‰æ®µçš„ä»£ç 
+			//æå–å‰ä¸¤æ®µä½œä¸ºå“ç§ä»£ç 
+			return std::string(stdCode, idx);
 		}
 		else
 		{
-			//Á½¶ÎµÄ´úÂë£¬Ö±½Ó·µ»Ø
-			//Ö÷ÒªÕë¶ÔÄ³Ğ©½»Ò×Ëù£¬Ã¿¸öºÏÔ¼µÄ½»Ò×¹æÔò¶¼²»Í¬µÄÇé¿ö
-			//ÕâÖÖÇé¿ö£¬¾Í°ÑºÏÔ¼Ö±½Óµ±³ÉÆ·ÖÖÀ´ÓÃ
+			//ä¸¤æ®µçš„ä»£ç ï¼Œç›´æ¥è¿”å›
+			//ä¸»è¦é’ˆå¯¹æŸäº›äº¤æ˜“æ‰€ï¼Œæ¯ä¸ªåˆçº¦çš„äº¤æ˜“è§„åˆ™éƒ½ä¸åŒçš„æƒ…å†µ
+			//è¿™ç§æƒ…å†µï¼Œå°±æŠŠåˆçº¦ç›´æ¥å½“æˆå“ç§æ¥ç”¨
 			return stdCode;
-		}
+		}		
 	}
 
 	/*
-	 *	´Ó»ù´¡·ÖÔÂºÏÔ¼´úÂëÌáÈ¡»ù´¡Æ·ÖÖ´úÂë
-	 *	Èçag1912 -> ag
-	 *	Õâ¸öÖ»ÓĞ·ÖÔÂÆÚ»õÆ·ÖÖ²ÅÓĞÒâÒå
-	 *	Õâ¸ö²»»áÓĞÓÀĞøºÏÔ¼µÄ´úÂë´«µ½ÕâÀïÀ´£¬Èç¹ûÓĞµÄ»°¾ÍÊÇµ÷ÓÃµÄµØ·½ÓĞBug!
+	 *	ä»åŸºç¡€åˆ†æœˆåˆçº¦ä»£ç æå–åŸºç¡€å“ç§ä»£ç 
+	 *	å¦‚ag1912 -> ag
+	 *	è¿™ä¸ªåªæœ‰åˆ†æœˆæœŸè´§å“ç§æ‰æœ‰æ„ä¹‰
+	 *	è¿™ä¸ªä¸ä¼šæœ‰æ°¸ç»­åˆçº¦çš„ä»£ç ä¼ åˆ°è¿™é‡Œæ¥ï¼Œå¦‚æœæœ‰çš„è¯å°±æ˜¯è°ƒç”¨çš„åœ°æ–¹æœ‰Bug!
 	 */
 	static inline std::string rawMonthCodeToRawCommID(const char* code)
 	{
@@ -305,9 +273,9 @@ public:
 	}
 
 	/*
-	 *	»ù´¡·ÖÔÂºÏÔ¼´úÂë×ª±ê×¼Âë
-	 *	Èçag1912×ª³ÉÈ«Âë
-	 *	Õâ¸ö²»»áÓĞÓÀĞøºÏÔ¼µÄ´úÂë´«µ½ÕâÀïÀ´£¬Èç¹ûÓĞµÄ»°¾ÍÊÇµ÷ÓÃµÄµØ·½ÓĞBug!
+	 *	åŸºç¡€åˆ†æœˆåˆçº¦ä»£ç è½¬æ ‡å‡†ç 
+	 *	å¦‚ag1912è½¬æˆå…¨ç 
+	 *	è¿™ä¸ªä¸ä¼šæœ‰æ°¸ç»­åˆçº¦çš„ä»£ç ä¼ åˆ°è¿™é‡Œæ¥ï¼Œå¦‚æœæœ‰çš„è¯å°±æ˜¯è°ƒç”¨çš„åœ°æ–¹æœ‰Bug!
 	 */
 	static inline std::string rawMonthCodeToStdCode(const char* code, const char* exchg, bool isComm = false)
 	{
@@ -362,8 +330,8 @@ public:
 	}
 
 	/*
-	 *	Ô­Ê¼³£¹æ´úÂë×ª±ê×¼´úÂë
-	 *	ÕâÖÖÖ÷ÒªÕë¶Ô·Ç·ÖÔÂºÏÔ¼¶øÑÔ
+	 *	åŸå§‹å¸¸è§„ä»£ç è½¬æ ‡å‡†ä»£ç 
+	 *	è¿™ç§ä¸»è¦é’ˆå¯¹éåˆ†æœˆåˆçº¦è€Œè¨€
 	 */
 	static inline std::string rawFlatCodeToStdCode(const char* code, const char* exchg, const char* pid)
 	{
@@ -400,7 +368,7 @@ public:
 	static inline bool isMonthlyCode(const char* code)
 	{
 		//using namespace boost::xpressive;
-		//×îºó3-6Î»¶¼ÊÇÊı×Ö£¬²ÅÊÇ·ÖÔÂºÏÔ¼
+		//æœ€å3-6ä½éƒ½æ˜¯æ•°å­—ï¼Œæ‰æ˜¯åˆ†æœˆåˆçº¦
 		//static cregex reg_stk = cregex::compile("^.*[A-z|-]\\d{3,6}$");	//CFFEX.IO.2007
 		//return 	regex_match(code, reg_stk);
 		auto len = strlen(code);
@@ -415,22 +383,45 @@ public:
 
 				state += 1;
 			}
-			else if (3 <= state && state < 6)
+			else if (3 == state || 4 == state)
 			{
 				if ('0' <= ch && ch <= '9')
 					state += 1;
+
+				else if ('A' <= ch && ch <= 'z')
+				{
+					state = 7;
+					break;
+				}
+			}
+			else if (4 == state)
+			{
+				if ('0' <= ch && ch <= '9')
+					state += 1;
+
 				else if (('A' <= ch && ch <= 'z') || ch == '-')
 				{
 					state = 7;
 					break;
 				}
 			}
-			else if (state == 6)
+			else if (state < 6)
+			{
+				if ('0' <= ch && ch <= '9')
+					state += 1;
+				else
+					return false;
+			}
+			else if (state >= 6)
 			{
 				if (('A' <= ch && ch <= 'z') || ch == '-')
 				{
 					state = 7;
 					break;
+				}
+				else
+				{
+					return false;
 				}
 			}
 		}
@@ -439,15 +430,15 @@ public:
 	}
 
 	/*
-	 *	ÆÚ»õÆÚÈ¨´úÂë±ê×¼»¯
-	 *	±ê×¼ÆÚ»õÆÚÈ¨´úÂë¸ñÊ½ÎªCFFEX.IO2008.C.4300
-	 *	-- ÔİÊ±Ã»ÓĞµØ·½µ÷ÓÃ --
+	 *	æœŸè´§æœŸæƒä»£ç æ ‡å‡†åŒ–
+	 *	æ ‡å‡†æœŸè´§æœŸæƒä»£ç æ ¼å¼ä¸ºCFFEX.IO2008.C.4300
+	 *	-- æš‚æ—¶æ²¡æœ‰åœ°æ–¹è°ƒç”¨ --
 	 */
 	static inline std::string rawFutOptCodeToStdCode(const char* code, const char* exchg)
 	{
 		using namespace boost::xpressive;
-		/* ¶¨ÒåÕıÔò±í´ïÊ½ */
-		static cregex reg_stk = cregex::compile("^[A-z]+\\d{4}-(C|P)-\\d+$");	//ÖĞ½ğËù¡¢´óÉÌËù¸ñÊ½IO2013-C-4000
+		/* å®šä¹‰æ­£åˆ™è¡¨è¾¾å¼ */
+		static cregex reg_stk = cregex::compile("^[A-z]+\\d{4}-(C|P)-\\d+$");	//ä¸­é‡‘æ‰€ã€å¤§å•†æ‰€æ ¼å¼IO2013-C-4000
 		bool bMatch = regex_match(code, reg_stk);
 		if(bMatch)
 		{
@@ -457,9 +448,9 @@ public:
 		}
 		else
 		{
-			//Ö£ÉÌËùÉÏÆÚËùÆÚÈ¨´úÂë¸ñÊ½ZC2010P11600
+			//éƒ‘å•†æ‰€ä¸ŠæœŸæ‰€æœŸæƒä»£ç æ ¼å¼ZC010P11600
 
-			//ÏÈ´ÓºóÍùÇ°¶¨Î»µ½P»òCµÄÎ»ÖÃ
+			//å…ˆä»åå¾€å‰å®šä½åˆ°Pæˆ–Cçš„ä½ç½®
 			std::size_t idx = strlen(code) - 1;
 			for(; idx >= 0; idx--)
 			{
@@ -469,7 +460,10 @@ public:
 			
 			std::string s = exchg;
 			s.append(".");
-			s.append(code, idx);
+			s.append(code, idx-3);
+			if(strcmp(exchg, "CZCE") == 0)
+				s.append("2");
+			s.append(&code[idx - 3], 3);
 			s.append(".");
 			s.append(&code[idx], 1);
 			s.append(".");
@@ -479,7 +473,7 @@ public:
 	}
 
 	/*
-	 *	±ê×¼ºÏÔ¼´úÂë×ªÖ÷Á¦´úÂë
+	 *	æ ‡å‡†åˆçº¦ä»£ç è½¬ä¸»åŠ›ä»£ç 
 	 */
 	static inline std::string stdCodeToStdHotCode(const char* stdCode)
 	{
@@ -495,7 +489,7 @@ public:
 	}
 
 	/*
-	 *	±ê×¼ºÏÔ¼´úÂë×ª´ÎÖ÷Á¦´úÂë
+	 *	æ ‡å‡†åˆçº¦ä»£ç è½¬æ¬¡ä¸»åŠ›ä»£ç 
 	 */
 	static inline std::string stdCodeToStd2ndCode(const char* stdCode)
 	{
@@ -511,8 +505,8 @@ public:
 	}
 
 	/*
-	 *	±ê×¼ÆÚ»õÆÚÈ¨´úÂë×ªÔ­´úÂë
-	 *	-- ÔİÊ±Ã»ÓĞµØ·½µ÷ÓÃ --
+	 *	æ ‡å‡†æœŸè´§æœŸæƒä»£ç è½¬åŸä»£ç 
+	 *	-- æš‚æ—¶æ²¡æœ‰åœ°æ–¹è°ƒç”¨ --
 	 */
 	static inline std::string stdFutOptCodeToRawCode(const char* stdCode)
 	{
@@ -544,7 +538,7 @@ public:
 	}
 
 	/*
-	 *	ÌáÈ¡±ê×¼ÆÚ»õÆÚÈ¨´úÂëµÄĞÅÏ¢
+	 *	æå–æ ‡å‡†æœŸè´§æœŸæƒä»£ç çš„ä¿¡æ¯
 	 */
 	static CodeInfo extractStdChnFutOptCode(const char* stdCode)
 	{
@@ -552,9 +546,14 @@ public:
 
 		StringVector ay = StrUtil::split(stdCode, ".");
 		wt_strcpy(codeInfo._exchg, ay[0].c_str());
-		if(strcmp(codeInfo._exchg, "SHFE") == 0 || strcmp(codeInfo._exchg, "CZCE") == 0)
+		if(strcmp(codeInfo._exchg, "SHFE") == 0 || strcmp(codeInfo._exchg, "INE") == 0)
 		{
 			fmt::format_to(codeInfo._code, "{}{}{}", ay[1], ay[2], ay[3]);
+		}
+		else if (strcmp(codeInfo._exchg, "CZCE") == 0)
+		{
+			std::string& s = ay[1];
+			fmt::format_to(codeInfo._code, "{}{}{}{}", s.substr(0, s.size()-4), s.substr(s.size()-3), ay[2], ay[3]);
 		}
 		else
 		{
@@ -582,11 +581,11 @@ public:
 	}
 
 	/*
-	 *	ÌáÆğ±ê×¼´úÂëµÄĞÅÏ¢
+	 *	æèµ·æ ‡å‡†ä»£ç çš„ä¿¡æ¯
 	 */
-	static CodeInfo extractStdCode(const char* stdCode)
+	static CodeInfo extractStdCode(const char* stdCode, IHotMgr *hotMgr)
 	{
-		//ÆÚÈ¨µÄ´úÂë¹æÔòºÍÆäËû¶¼²»Ò»Ñù£¬ËùÒÔµ¥¶ÀÅĞ¶Ï
+		//æœŸæƒçš„ä»£ç è§„åˆ™å’Œå…¶ä»–éƒ½ä¸ä¸€æ ·ï¼Œæ‰€ä»¥å•ç‹¬åˆ¤æ–­
 		if(isStdChnFutOptCode(stdCode))
 		{
 			return extractStdChnFutOptCode(stdCode);
@@ -595,15 +594,15 @@ public:
 		{
 			/*
 			 *	By Wesley @ 2021.12.25
-			 *	1¡¢ÏÈ¿´ÊÇ²»ÊÇQºÍH½áÎ²µÄ£¬Èç¹ûÊÇ¸´È¨±ê¼ÇÈ·ÈÏÒÔºó£¬×îºóÒ»¶Î³¤¶È-1£¬¸´ÖÆµ½code£¬ÈçSSE.STK.600000Q
-			 *	2¡¢ÔÙ¿´ÊÇ²»ÊÇ·ÖÔÂºÏÔ¼£¬Èç¹ûÊÇ£¬Ôò½«product×Ö¶ÎÆ´½ÓÔÂ·İ¸øcode£¨Ö£ÉÌËùÌØÊâ´¦Àí£©£¬ÈçCFFEX.IF.2112
-			 *	3¡¢×îºó¿´¿´ÊÇ²»ÊÇHOTºÍ2ND½áÎ²µÄ£¬Èç¹ûÊÇ£¬Ôò½«product¿½±´¸øcode£¬ÈçDCE.m.HOT
-			 *	4¡¢Èç¹û¶¼²»ÊÇ£¬ÔòÔ­Ñù¸´ÖÆµÚÈı¶Î£¬ÈçBINANCE.DC.BTCUSDT/SSE.STK.600000
+			 *	1ã€å…ˆçœ‹æ˜¯ä¸æ˜¯Qå’ŒHç»“å°¾çš„ï¼Œå¦‚æœæ˜¯å¤æƒæ ‡è®°ç¡®è®¤ä»¥åï¼Œæœ€åä¸€æ®µé•¿åº¦-1ï¼Œå¤åˆ¶åˆ°codeï¼Œå¦‚SSE.STK.600000Q
+			 *	2ã€å†çœ‹æ˜¯ä¸æ˜¯åˆ†æœˆåˆçº¦ï¼Œå¦‚æœæ˜¯ï¼Œåˆ™å°†productå­—æ®µæ‹¼æ¥æœˆä»½ç»™codeï¼ˆéƒ‘å•†æ‰€ç‰¹æ®Šå¤„ç†ï¼‰ï¼Œå¦‚CFFEX.IF.2112
+			 *	3ã€æœ€åçœ‹çœ‹æ˜¯ä¸æ˜¯HOTå’Œ2NDç»“å°¾çš„ï¼Œå¦‚æœæ˜¯ï¼Œåˆ™å°†productæ‹·è´ç»™codeï¼Œå¦‚DCE.m.HOT
+			 *	4ã€å¦‚æœéƒ½ä¸æ˜¯ï¼Œåˆ™åŸæ ·å¤åˆ¶ç¬¬ä¸‰æ®µï¼Œå¦‚BINANCE.DC.BTCUSDT/SSE.STK.600000
 			 */
 			thread_local static CodeInfo codeInfo;
 			codeInfo.clear();
 			auto idx = StrUtil::findFirst(stdCode, '.');
-			memcpy(codeInfo._exchg, stdCode, idx);
+			wt_strcpy(codeInfo._exchg, stdCode, idx);
 
 			auto idx2 = StrUtil::findFirst(stdCode + idx + 1, '.');
 			if (idx2 == std::string::npos)
@@ -611,40 +610,46 @@ public:
 				wt_strcpy(codeInfo._product, stdCode + idx + 1);
 
 				//By Wesley @ 2021.12.29
-				//Èç¹ûÊÇÁ½¶ÎµÄºÏÔ¼´úÂë£¬ÈçOKEX.BTC-USDT
-				//ÔòÆ·ÖÖ´úÂëºÍºÏÔ¼´úÂëÒ»ÖÂ
+				//å¦‚æœæ˜¯ä¸¤æ®µçš„åˆçº¦ä»£ç ï¼Œå¦‚OKEX.BTC-USDT
+				//åˆ™å“ç§ä»£ç å’Œåˆçº¦ä»£ç ä¸€è‡´
 				wt_strcpy(codeInfo._code, stdCode + idx + 1);
 			}
 			else
 			{
-				memcpy(codeInfo._product, stdCode + idx + 1, idx2);
+				wt_strcpy(codeInfo._product, stdCode + idx + 1, idx2);
 				const char* ext = stdCode + idx + idx2 + 2;
 				std::size_t extlen = strlen(ext);
 				char lastCh = ext[extlen - 1];
 				if (lastCh == SUFFIX_QFQ || lastCh == SUFFIX_HFQ)
 				{
-					memcpy(codeInfo._code, ext, extlen - 1);
 					codeInfo._exright = (lastCh == SUFFIX_QFQ) ? 1 : 2;
+
+					extlen--;
+					lastCh = ext[extlen - 1];
 				}
-				else if (extlen == 4 && '0' <= lastCh && lastCh <= '9')
+				
+				if (extlen == 4 && '0' <= lastCh && lastCh <= '9')
 				{
-					//Èç¹û×îºóÒ»¶ÎÊÇ4Î»Êı×Ö£¬ËµÃ÷ÊÇ·ÖÔÂºÏÔ¼
-					//TODO: ÕâÑùµÄÅĞ¶Ï´æÔÚÒ»¸ö¼ÙÉè£¬×îºóÒ»Î»ÊÇÊı×ÖµÄÒ»¶¨ÊÇÆÚ»õ·ÖÔÂºÏÔ¼£¬ÒÔºó¿ÉÄÜ»áÓĞÎÊÌâ£¬ÏÈ×¢ÊÍÒ»ÏÂ
-					//ÄÇÃ´codeµÃ¼ÓÉÏÆ·ÖÖid
-					//Ö£ÉÌËùµÃµ¥¶À´¦ÀíÒ»ÏÂ£¬Õâ¸öÖ»ÄÜhardcodeÁË
+					//å¦‚æœæœ€åä¸€æ®µæ˜¯4ä½æ•°å­—ï¼Œè¯´æ˜æ˜¯åˆ†æœˆåˆçº¦
+					//TODO: è¿™æ ·çš„åˆ¤æ–­å­˜åœ¨ä¸€ä¸ªå‡è®¾ï¼Œæœ€åä¸€ä½æ˜¯æ•°å­—çš„ä¸€å®šæ˜¯æœŸè´§åˆ†æœˆåˆçº¦ï¼Œä»¥åå¯èƒ½ä¼šæœ‰é—®é¢˜ï¼Œå…ˆæ³¨é‡Šä¸€ä¸‹
+					//é‚£ä¹ˆcodeå¾—åŠ ä¸Šå“ç§id
+					//éƒ‘å•†æ‰€å¾—å•ç‹¬å¤„ç†ä¸€ä¸‹ï¼Œè¿™ä¸ªåªèƒ½hardcodeäº†
 					auto i = wt_strcpy(codeInfo._code, codeInfo._product);
 					if (memcmp(codeInfo._exchg, "CZCE", 4) == 0)
-						memcpy(codeInfo._code + i, ext + 1, extlen-1);
+						wt_strcpy(codeInfo._code + i, ext + 1, extlen-1);
 					else
-						memcpy(codeInfo._code + i, ext, extlen);
+						wt_strcpy(codeInfo._code + i, ext, extlen);
 				}
 				else
 				{
-					codeInfo._hotflag = CodeHelper::isStdFutHotCode(stdCode) ? 1 : (CodeHelper::isStdFut2ndCode(stdCode) ? 2 : 0);
-					if (codeInfo._hotflag == 0)
-						wt_strcpy(codeInfo._code, ext);
+					const char* ruleTag = (hotMgr != NULL) ? hotMgr->getRuleTag(ext) :"";
+					if (strlen(ruleTag) == 0)
+						wt_strcpy(codeInfo._code, ext, extlen);
 					else
+					{
 						wt_strcpy(codeInfo._code, codeInfo._product);
+						wt_strcpy(codeInfo._ruletag, ruleTag);
+					}
 				}
 			}			
 

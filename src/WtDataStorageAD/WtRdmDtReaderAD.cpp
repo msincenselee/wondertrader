@@ -1,4 +1,4 @@
-#include "WtRdmDtReaderAD.h"
+ï»¿#include "WtRdmDtReaderAD.h"
 #include "LMDBKeys.h"
 
 #include "../Includes/WTSVariant.hpp"
@@ -70,15 +70,15 @@ void WtRdmDtReaderAD::init(WTSVariant* cfg, IRdmDtReaderSink* sink)
 	pipe_rdmreader_log(sink, LL_INFO, "WtRdmDtReaderAD initialized, root data folder is {}", _base_dir);
 }
 
-WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByCount(const char* stdCode, uint32_t count, uint64_t etime /* = 0 */)
+WTSTickSlice* WtRdmDtReaderAD::readTickSliceByCount(const char* stdCode, uint32_t count, uint64_t etime /* = 0 */)
 {
-	//TODO: ÒÔºóÔÙÀ´ÊµÏÖ°É
+	//TODO: ä»¥åŽå†æ¥å®žçŽ°å§
 	return NULL;
 }
 
-WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64_t stime, uint64_t etime /* = 0 */)
+WTSTickSlice* WtRdmDtReaderAD::readTickSliceByRange(const char* stdCode, uint64_t stime, uint64_t etime /* = 0 */)
 {
-	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
 	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	WTSSessionInfo* sInfo = commInfo->getSessionInfo();
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
@@ -100,21 +100,21 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 
 	std::string key = stdCode;
 
-	//ÏÈ¼ì²é»º´æ
+	//å…ˆæ£€æŸ¥ç¼“å­˜
 	TicksList& tickList = _ticks_cache[key];
 
 	bool isEmpty = tickList._ticks.empty();
 	bool bNeedOlder = stime < tickList._first_tick_time;
 	bool bNeedNewer = etime > tickList._last_tick_time;
 
-	//ÕâÀïÒª¸Ä³É´Ólmdb¶ÁÈ¡
+	//è¿™é‡Œè¦æ”¹æˆä»Žlmdbè¯»å–
 	WtLMDBPtr db = get_t_db(cInfo._exchg, cInfo._code);
 	if (db == NULL)
 		return NULL;
 
 	if (isEmpty)
 	{
-		//°´ÕÕÇø¼ä¼ÓÔØ¼´¿É
+		//æŒ‰ç…§åŒºé—´åŠ è½½å³å¯
 		WtLMDBQuery query(*db);
 		LMDBHftKey lKey(cInfo._exchg, cInfo._code, beginTDate, lTime * 100000 + lSecs);
 		LMDBHftKey rKey(cInfo._exchg, cInfo._code, endTDate, rTime * 100000 + rSecs);
@@ -144,7 +144,7 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 	{
 		if (bNeedOlder)
 		{
-			//¶ÁÈ¡¸üÔçµÄÊý¾Ý
+			//è¯»å–æ›´æ—©çš„æ•°æ®
 			WtLMDBQuery query(*db);
 			LMDBHftKey rKey(cInfo._exchg, cInfo._code, (uint32_t)(tickList._first_tick_time / 1000000000), (uint32_t)(tickList._first_tick_time % 1000000000));
 			LMDBHftKey lKey(cInfo._exchg, cInfo._code, beginTDate, lTime * 100000 + lSecs);
@@ -160,7 +160,7 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 					idx++;
 				}
 
-				//½«Ô­À´µÄÊý¾Ý¿½±´µ½ºóÃæ£¬ÔÙ×öÒ»¸öswap¼´¿É
+				//å°†åŽŸæ¥çš„æ•°æ®æ‹·è´åˆ°åŽé¢ï¼Œå†åšä¸€ä¸ªswapå³å¯
 				memcpy(&ayTicks[idx], tickList._ticks.data(), sizeof(WTSTickStruct)*tickList._ticks.size());
 				tickList._ticks.swap(ayTicks);
 			});
@@ -176,7 +176,7 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 
 		if (bNeedNewer)
 		{
-			//¶ÁÈ¡¸üÐÂµÄÊý¾Ý
+			//è¯»å–æ›´æ–°çš„æ•°æ®
 			WtLMDBQuery query(*db);
 			LMDBHftKey lKey(cInfo._exchg, cInfo._code, (uint32_t)(tickList._last_tick_time / 1000000000), (uint32_t)(tickList._last_tick_time % 1000000000));
 			LMDBHftKey rKey(cInfo._exchg, cInfo._code, endTDate, rTime * 100000 + rSecs);
@@ -199,9 +199,9 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 		}
 	}
 
-	//È«²¿¶ÁÈ¡Íê³ÉÒÔºó£¬ÔÙÉú³ÉÇÐÆ¬
+	//å…¨éƒ¨è¯»å–å®Œæˆä»¥åŽï¼Œå†ç”Ÿæˆåˆ‡ç‰‡
 	{
-		//±È½ÏÊ±¼äµÄ¶ÔÏó
+		//æ¯”è¾ƒæ—¶é—´çš„å¯¹è±¡
 		WTSTickStruct sTick, eTick;
 		sTick.action_date = lDate;
 		sTick.action_time = (uint32_t)(stime % 1000000000);
@@ -225,7 +225,7 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 		}
 
 		pTick = &tickList._ticks[0];
-		//Èç¹ûµÚÒ»ÌõÊµÊ±KÏßµÄÊ±¼ä´óÓÚ¿ªÊ¼ÈÕÆÚ£¬ÔòÊµÊ±KÏßÒªÈ«²¿°üº¬½øÈ¥
+		//å¦‚æžœç¬¬ä¸€æ¡å®žæ—¶Kçº¿çš„æ—¶é—´å¤§äºŽå¼€å§‹æ—¥æœŸï¼Œåˆ™å®žæ—¶Kçº¿è¦å…¨éƒ¨åŒ…å«è¿›åŽ»
 		if (pTick->action_date > sTick.action_date || (pTick->action_date == sTick.action_date && pTick->action_time > sTick.action_time))
 		{
 			cnt = eIdx + 1;
@@ -250,13 +250,19 @@ WTSTickSlice* WtRdmDtReaderAD::readTickSlicesByRange(const char* stdCode, uint64
 
 WTSKlineSlice* WtRdmDtReaderAD::readKlineSliceByCount(const char* stdCode, WTSKlinePeriod period, uint32_t count, uint64_t etime /* = 0 */)
 {
-	//TODO: ÒÔºóÔÙÀ´ÊµÏÖ°É
+	//TODO: ä»¥åŽå†æ¥å®žçŽ°å§
+	return NULL;
+}
+
+WTSTickSlice* WtRdmDtReaderAD::readTickSliceByDate(const char* stdCode, uint32_t uDate )
+{
+	//TODO: ä»¥åŽå†æ¥å®žçŽ°å§
 	return NULL;
 }
 
 WTSKlineSlice* WtRdmDtReaderAD::readKlineSliceByRange(const char* stdCode, WTSKlinePeriod period, uint64_t stime, uint64_t etime /* = 0 */)
 {
-	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
 	WTSCommodityInfo* commInfo = _base_data_mgr->getCommodity(cInfo._exchg, cInfo._product);
 	std::string stdPID = StrUtil::printf("%s.%s", cInfo._exchg, cInfo._product);
 
@@ -270,16 +276,16 @@ WTSKlineSlice* WtRdmDtReaderAD::readKlineSliceByRange(const char* stdCode, WTSKl
 	uint32_t beginTDate = _base_data_mgr->calcTradingDate(stdPID.c_str(), lDate, lTime, false);
 
 	bool isDay = period == KP_DAY;
-	//×ª»»³ÉKÏßÊ±¼ä
+	//è½¬æ¢æˆKçº¿æ—¶é—´
 	etime = isDay ? endTDate : (etime - 19000000);
 
-	//ÔÝÊ±²»¿¼ÂÇHOTÖ®ÀàµÄ£¬Ö»Õë¶Ô7¡Á24Ð¡Ê±Æ·ÖÖ×öÒ»¸öÊµÏÖ
+	//æš‚æ—¶ä¸è€ƒè™‘HOTä¹‹ç±»çš„ï¼Œåªé’ˆå¯¹7Ã—24å°æ—¶å“ç§åšä¸€ä¸ªå®žçŽ°
 	std::string key = StrUtil::printf("%s#%u", stdCode, period);
 	BarsList& barsList = _bars_cache[key];
 
 	bool bNeedNewer = (etime > barsList._last_bar_time);
 
-	//È«²¿ÖØÔØ
+	//å…¨éƒ¨é‡è½½
 	WtLMDBPtr db = get_k_db(cInfo._exchg, period);
 	if (db == NULL)
 		return NULL;
@@ -307,7 +313,7 @@ WTSKlineSlice* WtRdmDtReaderAD::readKlineSliceByRange(const char* stdCode, WTSKl
 	}
 	else if(bNeedNewer)
 	{
-		//¼ÓÔØ¸üÐÂµÄÊý¾Ý
+		//åŠ è½½æ›´æ–°çš„æ•°æ®
 		pipe_rdmreader_log(_sink, LL_DEBUG, "Reading back {} bars of {}.{}...", PERIOD_NAME[period], cInfo._exchg, cInfo._code);
 		WtLMDBQuery query(*db);
 		LMDBBarKey rKey(cInfo._exchg, cInfo._code, 0xffffffff);
@@ -356,7 +362,7 @@ WTSKlineSlice* WtRdmDtReaderAD::readKlineSliceByRange(const char* stdCode, WTSKl
 		}
 
 		pBar = &barsList._bars[0];
-		//Èç¹ûµÚÒ»ÌõÊµÊ±KÏßµÄÊ±¼ä´óÓÚ¿ªÊ¼ÈÕÆÚ£¬ÔòÊµÊ±KÏßÒªÈ«²¿°üº¬½øÈ¥
+		//å¦‚æžœç¬¬ä¸€æ¡å®žæ—¶Kçº¿çš„æ—¶é—´å¤§äºŽå¼€å§‹æ—¥æœŸï¼Œåˆ™å®žæ—¶Kçº¿è¦å…¨éƒ¨åŒ…å«è¿›åŽ»
 		if ((isDay && pBar->date > sBar.date) || (!isDay && pBar->time > sBar.time))
 		{
 			pHead = pBar;

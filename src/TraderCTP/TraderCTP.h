@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * \file TraderCTP.h
  * \project	WonderTrader
  *
@@ -19,9 +19,9 @@
 
 #include "../API/CTP6.3.15/ThostFtdcTraderApi.h"
 
-#include "../Share/IniHelper.hpp"
 #include "../Share/StdUtils.hpp"
 #include "../Share/DLLHelper.hpp"
+#include "../Share/WtKVCache.hpp"
 
 USING_NS_WTP;
 
@@ -34,13 +34,13 @@ public:
 public:
 	typedef enum
 	{
-		WS_NOTLOGIN,		//Î´µÇÂ¼
-		WS_LOGINING,		//ÕıÔÚµÇÂ¼
-		WS_LOGINED,			//ÒÑµÇÂ¼
-		WS_LOGINFAILED,		//µÇÂ¼Ê§°Ü
+		WS_NOTLOGIN,		//æœªç™»å½•
+		WS_LOGINING,		//æ­£åœ¨ç™»å½•
+		WS_LOGINED,			//å·²ç™»å½•
+		WS_LOGINFAILED,		//ç™»å½•å¤±è´¥
 		WS_CONFIRM_QRYED,
-		WS_CONFIRMED,		//ÒÑÈ·ÈÏ
-		WS_ALLREADY			//È«²¿¾ÍĞ÷
+		WS_CONFIRMED,		//å·²ç¡®è®¤
+		WS_ALLREADY			//å…¨éƒ¨å°±ç»ª
 	} WrapperState;
 
 
@@ -55,7 +55,7 @@ private:
 	int doLogin();
 
 	//////////////////////////////////////////////////////////////////////////
-	//ITraderApi½Ó¿Ú
+	//ITraderApiæ¥å£
 public:
 	virtual bool init(WTSVariant* params) override;
 
@@ -91,7 +91,7 @@ public:
 
 
 	//////////////////////////////////////////////////////////////////////////
-	//CTP½»Ò×½Ó¿ÚÊµÏÖ
+	//CTPäº¤æ˜“æ¥å£å®ç°
 public:
 	virtual void OnFrontConnected() override;
 
@@ -119,7 +119,7 @@ public:
 
 	virtual void OnRspQrySettlementInfo(CThostFtdcSettlementInfoField *pSettlementInfo, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
 
-	///ÇëÇó²éÑ¯³É½»ÏìÓ¦
+	///è¯·æ±‚æŸ¥è¯¢æˆäº¤å“åº”
 	virtual void OnRspQryTrade(CThostFtdcTradeField *pTrade, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
 
 	virtual void OnRspQryOrder(CThostFtdcOrderField *pOrder, CThostFtdcRspInfoField *pRspInfo, int nRequestID, bool bIsLast) override;
@@ -132,9 +132,11 @@ public:
 
 	virtual void OnErrRtnOrderInsert(CThostFtdcInputOrderField *pInputOrder, CThostFtdcRspInfoField *pRspInfo) override;
 
-protected:
+	virtual void OnRtnInstrumentStatus(CThostFtdcInstrumentStatusField *pInstrumentStatus) override;
+
+private:
 	/*
-	*	¼ì²é´íÎóĞÅÏ¢
+	*	æ£€æŸ¥é”™è¯¯ä¿¡æ¯
 	*/
 	bool IsErrorRspInfo(CThostFtdcRspInfoField *pRspInfo);
 
@@ -153,22 +155,18 @@ protected:
 
 	WTSOrderInfo*	makeOrderInfo(CThostFtdcOrderField* orderField);
 	WTSEntrust*		makeEntrust(CThostFtdcInputOrderField *entrustField);
+	WTSEntrustAction*	makeAction(CThostFtdcInputOrderActionField *entrustField);
 	WTSError*		makeError(CThostFtdcRspInfoField* rspInfo, WTSErroCode ec = WEC_NONE);
-	WTSTradeInfo*	makeTradeRecord(CThostFtdcTradeField *tradeField);
+	WTSTradeInfo*	makeTradeInfo(CThostFtdcTradeField *tradeField);
 
 	void			generateEntrustID(char* buffer, uint32_t frontid, uint32_t sessionid, uint32_t orderRef);
 	bool			extractEntrustID(const char* entrustid, uint32_t &frontid, uint32_t &sessionid, uint32_t &orderRef);
 
-	//uint64_t		calcCommission(uint32_t qty, uint32_t price, WTSOffsetType flag, WTSContractInfo* ct);
-	//uint64_t		calcMargin(uint32_t qty, uint32_t price, WTSDirectionType direct, WTSContractInfo* ct);
-
 	uint32_t		genRequestID();
-
-	//void			triggerQuery();
 
 protected:
 	std::string		m_strBroker;
-	std::string		m_strFront;
+	std::vector<std::string> m_strFront;
 
 	std::string		m_strUser;
 	std::string		m_strPass;
@@ -187,13 +185,13 @@ protected:
 	std::string		m_strUserName;
 	std::string		m_strFlowDir;
 
-	ITraderSpi*	m_sink;
+	ITraderSpi*		m_sink;
 	uint64_t		m_uLastQryTime;
 
 	uint32_t					m_lDate;
-	TThostFtdcFrontIDType		m_frontID;		//Ç°ÖÃ±àºÅ
-	TThostFtdcSessionIDType		m_sessionID;	//»á»°±àºÅ
-	std::atomic<uint32_t>		m_orderRef;		//±¨µ¥ÒıÓÃ
+	uint32_t					m_frontID;		//å‰ç½®ç¼–å·
+	uint32_t					m_sessionID;	//ä¼šè¯ç¼–å·
+	std::atomic<uint32_t>		m_orderRef;		//æŠ¥å•å¼•ç”¨
 
 	WrapperState				m_wrapperState;
 
@@ -222,6 +220,9 @@ protected:
 	typedef CThostFtdcTraderApi* (*CTPCreator)(const char *);
 	CTPCreator		m_funcCreator;
 
-	IniHelper		m_iniHelper;
+	//å§”æ‰˜å•æ ‡è®°ç¼“å­˜å™¨
+	WtKVCache		m_eidCache;
+	//è®¢å•æ ‡è®°ç¼“å­˜å™¨
+	WtKVCache		m_oidCache;
 };
 

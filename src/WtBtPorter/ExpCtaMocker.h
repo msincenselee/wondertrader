@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * \file PyCtaMocker.h
  * \project	WonderTrader
  *
@@ -15,7 +15,7 @@ USING_NS_WTP;
 class ExpCtaMocker : public CtaMocker
 {
 public:
-	ExpCtaMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0, bool persistData = true, EventNotifier* notifier = NULL);
+	ExpCtaMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0, bool persistData = true, EventNotifier* notifier = NULL, bool isRatioSlp = false);
 	virtual ~ExpCtaMocker();
 
 public:
@@ -34,5 +34,7 @@ public:
 	virtual void on_calculate_done(uint32_t curDate, uint32_t curTime) override;
 
 	virtual void on_bactest_end() override;
+
+	virtual void on_condition_triggered(const char* stdCode, double target, double price, const char* usertag) override;
 };
 

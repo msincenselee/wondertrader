@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "DataDefineAD.h"
 
 #include "../WTSUtils/WtLMDB.hpp"
@@ -39,19 +39,19 @@ public:
 private:
 	IBaseDataMgr*		_bd_mgr;
 
-	//Tick»º´æ
+	//Tickç¼“å­˜
 	StdUniqueMutex	_mtx_tick_cache;
 	std::string		_cache_file_tick;
-	faster_hashmap<std::string, uint32_t> _tick_cache_idx;
+	wt_hashmap<std::string, uint32_t> _tick_cache_idx;
 	BoostMFPtr		_tick_cache_file;
 	RTTickCache*	_tick_cache_block;
 
-	//m1»º´æ
+	//m1ç¼“å­˜
 	typedef struct _RTBarCacheWrapper
 	{
 		StdUniqueMutex	_mtx;
 		std::string		_filename;
-		faster_hashmap<std::string, uint32_t> _idx;
+		wt_hashmap<std::string, uint32_t> _idx;
 		BoostMFPtr		_file_ptr;
 		RTBarCache*		_cache_block;
 
@@ -81,21 +81,24 @@ private:
 	bool			_disable_min5;
 	bool			_disable_day;
 
+	uint32_t		_tick_mapsize;
+	uint32_t		_kline_mapsize;
+
 private:
 	//////////////////////////////////////////////////////////////////////////
 	/*
-	 *	ÕâÀï·ÅLMDBµÄÊı¾İ¿â¶¨Òå
-	 *	KÏßÊı¾İ£¬°´ÕÕÃ¿¸öÊĞ³¡m1/m5/d1Èı¸öÖÜÆÚÒ»¹²Èı¸öÊı¾İ¿â£¬Â·¾¶Èç./m1/CFFEX
-	 *	TickÊı¾İ£¬Ã¿¸öºÏÔ¼Ò»¸öÊı¾İ¿â£¬Â·¾¶Èç./ticks/CFFEX/IF2101
+	 *	è¿™é‡Œæ”¾LMDBçš„æ•°æ®åº“å®šä¹‰
+	 *	Kçº¿æ•°æ®ï¼ŒæŒ‰ç…§æ¯ä¸ªå¸‚åœºm1/m5/d1ä¸‰ä¸ªå‘¨æœŸä¸€å…±ä¸‰ä¸ªæ•°æ®åº“ï¼Œè·¯å¾„å¦‚./m1/CFFEX
+	 *	Tickæ•°æ®ï¼Œæ¯ä¸ªåˆçº¦ä¸€ä¸ªæ•°æ®åº“ï¼Œè·¯å¾„å¦‚./ticks/CFFEX/IF2101
 	 */
 	typedef std::shared_ptr<WtLMDB> WtLMDBPtr;
-	typedef faster_hashmap<std::string, WtLMDBPtr> WtLMDBMap;
+	typedef wt_hashmap<std::string, WtLMDBPtr> WtLMDBMap;
 
 	WtLMDBMap	_exchg_m1_dbs;
 	WtLMDBMap	_exchg_m5_dbs;
 	WtLMDBMap	_exchg_d1_dbs;
 
-	//ÓÃexchg.code×÷Îªkey£¬ÈçBINANCE.BTCUSDT
+	//ç”¨exchg.codeä½œä¸ºkeyï¼Œå¦‚BINANCE.BTCUSDT
 	WtLMDBMap	_tick_dbs;
 
 	WtLMDBPtr	get_k_db(const char* exchg, WTSKlinePeriod period);

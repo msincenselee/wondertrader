@@ -1,11 +1,11 @@
-/*!
+ï»¿/*!
  * \file TimeUtils.hpp
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
  * 
- * \brief Ê±¼ä´¦ÀíµÄ·â×°
+ * \brief æ—¶é—´å¤„ç†çš„å°è£…
  */
 #pragma once
 #include <stdint.h>
@@ -18,6 +18,8 @@
 #include <string>
 #include <string.h>
 #include<chrono>
+#include <thread>
+#include <cmath>
 
 #ifdef _MSC_VER
 #define CTIME_BUF_SIZE 64
@@ -54,11 +56,14 @@ class TimeUtils
 public:
 	static inline int64_t getLocalTimeNowOld(void)
 	{
-		timeb now;
+		thread_local static timeb now;
 		ftime(&now);
 		return now.time * 1000 + now.millitm;
 	}
 
+	/*
+	 *	è·å–æœ¬åœ°æ—¶é—´ï¼Œç²¾ç¡®åˆ°æ¯«ç§’
+	 */
 	static inline int64_t getLocalTimeNow(void)
 	{
 #ifdef _MSC_VER
@@ -73,85 +78,39 @@ public:
 		t = t - 11644473600L * TICKSPERSEC;
 		return t / 10000;
 #else
-		static thread_local struct timespec tp;
-		clock_gettime(CLOCK_REALTIME, &tp);
-		return tp.tv_sec * 1000 + tp.tv_nsec / 1000000;
+		//timeb now;
+		//ftime(&now);
+		//return now.time * 1000 + now.millitm;
+		/*
+		 *	clock_gettimeæ¯”ftimeä¼šæå‡çº¦10%çš„æ€§èƒ½
+		 */
+		thread_local static struct timespec now;
+		clock_gettime(CLOCK_REALTIME, &now);
+		return now.tv_sec * 1000 + now.tv_nsec / 1000000;
 #endif
-	}
-
-	static inline int64_t getLocalTimeNano(void)
-	{
-		return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 	}
 
 	static inline std::string getLocalTime(bool bIncludeMilliSec = true)
 	{
-		timeb now;
-		ftime(&now);
-		tm * tNow = localtime(&(now.time));
+		uint64_t ltime = getLocalTimeNow();
+		time_t now = ltime / 1000;
+		uint32_t millitm = ltime % 1000;
+		tm * tNow = localtime(&now);
 
 		char str[64] = {0};
 		if(bIncludeMilliSec)
-			sprintf(str, "%02d:%02d:%02d,%03d", tNow->tm_hour, tNow->tm_min, tNow->tm_sec, now.millitm);
+			sprintf(str, "%02d:%02d:%02d,%03d", tNow->tm_hour, tNow->tm_min, tNow->tm_sec, millitm);
 		else
 			sprintf(str, "%02d:%02d:%02d", tNow->tm_hour, tNow->tm_min, tNow->tm_sec);
 		return str;
 	}
 
-	/*
-	static inline int64_t getNowFreqCount(void){
-		_LARGE_INTEGER count;    	
-		QueryPerformanceCounter(&count);
-		return count.QuadPart;
-	}
-	*/
-
-	static inline std::string now(void) 
-	{
-		using namespace std; // For time_t, time and ctime;
-		time_t now = time(0);
-		std::string str = ctime(&now);
-		return str;
-	}
-
-	/*
-	static inline int64_t getFrequency(void){              
-		LARGE_INTEGER f;              //¼ÆÊ±Æ÷ÆµÂÊ
-		QueryPerformanceFrequency(&f);
-		return (int64_t)f.QuadPart;
-	}
-	*/
-
-	static inline std::string getYYYYMMDD(void)
-	{
-		std::string yyyymmdd;
-		tm local;
-		time_t now;
-		time(&now);
-#ifdef _WIN32
-		localtime_s(&local, &now);
-#else
-		localtime_r(&now, &local);
-#endif
-		char year[5];
-		sprintf(year, "%d", local.tm_year + 1900);
-		char month[3];
-		sprintf(month, "%02d",local.tm_mon+1);
-		char day[3];
-		sprintf(day, "%02d",local.tm_mday);
-		std::string ofilename;
-		yyyymmdd.append(year);
-		yyyymmdd.append(month);
-		yyyymmdd.append(day);
-		return yyyymmdd;
-	}
-
 	static inline uint64_t getYYYYMMDDhhmmss()
 	{
-		timeb now;
-		ftime(&now);
+		uint64_t ltime = getLocalTimeNow();
+		time_t now = ltime / 1000;
 
-		tm * tNow = localtime(&(now.time));
+		tm * tNow = localtime(&now);
 
 		uint64_t date = (tNow->tm_year + 1900) * 10000 + (tNow->tm_mon + 1) * 100 + tNow->tm_mday;
 
@@ -160,31 +119,30 @@ public:
 	}
 
     /*
-     * ¶ÁÈ¡µ±Ç°Ê±¼ä
-     * @date    µ±Ç°ÈÕÆÚ£¬¸ñÊ½Èç20220309
-     * @time    µ±Ç°Ê±¼ä£¬¾«È·µ½ºÁÃë£¬¸ñÊ½Èç103029500
+     * è¯»å–å½“å‰æ—¶é—´
+     * @date    å½“å‰æ—¥æœŸï¼Œæ ¼å¼å¦‚20220309
+     * @time    å½“å‰æ—¶é—´ï¼Œç²¾ç¡®åˆ°æ¯«ç§’ï¼Œæ ¼å¼å¦‚103029500
      */
 	static inline void getDateTime(uint32_t &date, uint32_t &time)
 	{
-		timeb now;
-		ftime(&now);
+		uint64_t ltime = getLocalTimeNow();
+		time_t now = ltime / 1000;
+		uint32_t millitm = ltime % 1000;
 
-		tm * tNow = localtime(&(now.time));
+		tm * tNow = localtime(&now);
 
 		date = (tNow->tm_year+1900)*10000 + (tNow->tm_mon+1)*100 + tNow->tm_mday;
 		
 		time = tNow->tm_hour*10000 + tNow->tm_min*100 + tNow->tm_sec;
 		time *= 1000;
-		time += now.millitm;
+		time += millitm;
 	}
 
 	static inline uint32_t getCurDate()
 	{
-		timeb now;
-		ftime(&now);
-
-		tm * tNow = localtime(&(now.time));
-
+		uint64_t ltime = getLocalTimeNow();
+		time_t now = ltime / 1000;
+		tm * tNow = localtime(&now);
 		uint32_t date = (tNow->tm_year+1900)*10000 + (tNow->tm_mon+1)*100 + tNow->tm_mday;
 
 		return date;
@@ -195,9 +153,7 @@ public:
 		time_t ts = 0;
 		if(uDate == 0)
 		{
-			timeb now;
-			ftime(&now);
-			ts = now.time;
+			ts = getLocalTimeNow()/1000;
 		}
 		else
 		{
@@ -216,76 +172,12 @@ public:
 
 	static inline uint32_t getCurMin()
 	{
-		timeb now;
-		ftime(&now);
-
-		tm * tNow = localtime(&(now.time));
-
+		uint64_t ltime = getLocalTimeNow();
+		time_t now = ltime / 1000;
+		tm * tNow = localtime(&now);
 		uint32_t time = tNow->tm_hour*10000 + tNow->tm_min*100 + tNow->tm_sec;
 
 		return time;
-	}
-
-	static inline std::string getYYYYMMDD_hhmmss(void)
-	{
-		std::string datetime_fmt_str = "";
-		tm local;
-		time_t now;
-		time(&now);
-#ifdef _WIN32
-		localtime_s(&local, &now);
-#else
-		localtime_r(&now, &local);
-#endif
-		char year[5] = {'\0'};
-		sprintf(year, "%d", local.tm_year + 1900);
-		char month[3]  = {'\0'};
-		sprintf(month, "%02d",local.tm_mon+1);
-		char day[3]  = {'\0'};
-		sprintf(day, "%02d",local.tm_mday);
-		char hh[3]  = {'\0'};
-		sprintf(hh, "%02d", local.tm_hour);
-		char mm[3]  = {'\0'};
-		sprintf(mm, "%02d", local.tm_min);
-		char ss[3]  = {'\0'};
-		sprintf(ss, "%02d", local.tm_sec);
-		std::string ofilename;
-		datetime_fmt_str.append(year);
-		datetime_fmt_str.append(month);
-		datetime_fmt_str.append(day);
-		datetime_fmt_str.append("_");
-		datetime_fmt_str.append(hh);
-		datetime_fmt_str.append(mm);
-		datetime_fmt_str.append(ss);
-		return datetime_fmt_str;
-	}
-
-	//20120512 09:15:00 -> ºÁÃë
-	//Ö§³ÖÈçÏÂ¸ñÊ½µÄ×Ö·û´®: 
-	// 20120512 09:15:00 or 20120512 09:15:00 999
-	// 20120512091500 or 20120512091500999
-	static inline int64_t makeTime(std::string time_str)
-	{
-	    //time_str = StringUtils::trim(time_str, ' ');
-		//time_str = StringUtils::trim(time_str, ':');
-		uint32_t len = (uint32_t)time_str.size();
-		if (len < 14) return 0;
-		tm t;	
-		memset(&t,0,sizeof(tm));
-		t.tm_year = atoi(time_str.substr(0, 4).c_str()) - 1900;
-		t.tm_mon = atoi(time_str.substr(4,2).c_str()) - 1;
-		t.tm_mday = atoi(time_str.substr(6,2).c_str());
-		t.tm_hour = atoi(time_str.substr(8,2).c_str());
-		t.tm_min = atoi(time_str.substr(10,2).c_str());
-		t.tm_sec = atoi(time_str.substr(12,2).c_str());
-		int millisec = 0;
-		if ( len == 17){ //ËµÃ÷»¹ÓĞºÁÃë
-			millisec = atoi(time_str.substr(14,3).c_str());
-		}
-		//t.tm_isdst 	
-		time_t ts = mktime(&t);
-		if (ts == -1) return 0;
-		return ts * 1000+ millisec;
 	}
 
 	static inline int32_t getTZOffset()
@@ -307,7 +199,13 @@ public:
 		return offset;
 	}
 
-	static inline int64_t makeTime(long lDate, long lTimeWithMs, bool isGM = false)
+	/*
+	 *	ç”Ÿæˆå¸¦æ¯«ç§’çš„timestamp
+	 *	@lDate			æ—¥æœŸï¼Œyyyymmdd
+	 *	@lTimeWithMs	å¸¦æ¯«ç§’çš„æ—¶é—´ï¼ŒHHMMSSsss
+	 *	@isToUTC		æ˜¯å¦è½¬æˆUTCæ—¶é—´
+	 */
+	static inline int64_t makeTime(long lDate, long lTimeWithMs, bool isToUTC = false)
 	{
 		tm t;	
 		memset(&t,0,sizeof(tm));
@@ -320,9 +218,10 @@ public:
 		int millisec = lTimeWithMs%1000;
 		//t.tm_isdst 	
 		time_t ts = mktime(&t);
-		if (isGM)
-			ts -= getTZOffset() * 3600;
 		if (ts == -1) return 0;
+		//å¦‚æœè¦è½¬æˆUTCæ—¶é—´ï¼Œåˆ™éœ€è¦æ ¹æ®æ—¶åŒºè¿›è¡Œè½¬æ¢
+		if (isToUTC)
+			ts -= getTZOffset() * 3600;
 		return ts * 1000+ millisec;
 	}
 
@@ -340,7 +239,7 @@ public:
 		localtime_r(&tt, &t);
 #endif
 		char tm_buf[64] = {'\0'};
-		if (msec > 0) //ÊÇ·ñÓĞºÁÃë
+		if (msec > 0) //æ˜¯å¦æœ‰æ¯«ç§’
 		   sprintf(tm_buf,"%4d%02d%02d%02d%02d%02d.%03d",t.tm_year+1900, t.tm_mon+1, t.tm_mday,
 			t.tm_hour, t.tm_min, t.tm_sec, msec);
 		else 
@@ -380,29 +279,27 @@ public:
 		return (uint32_t)ret;
 	}
 
-	static uint32_t getNextMonth(uint32_t curMonth, int months = 1)
-	{
-		uint32_t uYear = curMonth/100;
-		uint32_t uMonth = curMonth%100;
-
-		uint32_t uAddYear = months/12;
-		uint32_t uAddMon = months%12;
-
-		uYear += uAddYear;
-		uMonth += uAddMon;
-		if(uMonth > 12)
-		{
-			uYear ++;
-			uMonth -= 12;
-		}
-		else if(uMonth <= 0)
-		{
-			uYear --;
-			uMonth = 12;
-		}
-
-		return uYear*100 + uMonth;
-	}
+    /*
+     * @curMonth: YYYYMM
+     * @return: YYYYMM
+     */
+    static uint32_t getNextMonth(uint32_t curMonth, int months = 1)
+    {
+        int32_t uYear = curMonth / 100;
+        int32_t uMonth = curMonth % 100; // [1, 12]
+     
+		int32_t uAddYear = months / 12;
+        int32_t uAddMon = months % 12;
+        if (uAddMon < 0) uAddMon += 12;  // math modulus: [0, 11]
+     
+        uYear += uAddYear;
+        uMonth += uAddMon;
+        if (uMonth > 12) {
+            ++uYear;
+            uMonth -= 12;
+        }
+        return (uint32_t) (uYear*100 + uMonth);
+    }
 
 	static inline uint64_t timeToMinBar(uint32_t uDate, uint32_t uTime)
 	{
@@ -468,7 +365,7 @@ public:
 		void from_local_time(uint64_t _time)
 		{
 			time_t _t = _time/1000;
-			_msec = (uint32_t)_time%1000;
+			_msec = (uint32_t)(_time%1000);
 #ifdef _WIN32
 			localtime_s(&t, &_t);
 #else

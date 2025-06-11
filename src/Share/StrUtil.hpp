@@ -1,11 +1,11 @@
-/*!
+ï»¿/*!
  * \file StrUtil.hpp
  * \project	WonderTrader
  *
  * \author Wesley
  * \date 2020/03/30
  * 
- * \brief ×Ö·û´®´¦ÀíµÄ·â×°
+ * \brief å­—ç¬¦ä¸²å¤„ç†çš„å°è£…
  */
 #pragma once
 #include <string>
@@ -52,7 +52,7 @@ public:
 		return std::move(ret);
 	}
 
-	//È¥µôËùÓĞ¿Õ¸ñ
+	//å»æ‰æ‰€æœ‰ç©ºæ ¼
 	static inline void trimAllSpace(std::string &str)
 	{
 		std::string::iterator destEnd = std::remove_if(str.begin(), str.end(), [](const char& c){
@@ -61,12 +61,12 @@ public:
 		str.resize(destEnd-str.begin());
 	}
 
-	//È¥³ıËùÓĞÌØ¶¨×Ö·û
-	static inline void trimAll(std::string &str,char ch)
-	{
-		std::string::iterator destEnd=std::remove_if(str.begin(),str.end(),std::bind1st(std::equal_to<char>(),ch));
-		str.resize(destEnd-str.begin());
-	}
+	//å»é™¤æ‰€æœ‰ç‰¹å®šå­—ç¬¦
+	//static inline void trimAll(std::string &str,char ch)
+	//{
+	//	std::string::iterator destEnd=std::remove_if(str.begin(),str.end(),std::bind1st(std::equal_to<char>(),ch));
+	//	str.resize(destEnd-str.begin());
+	//}
 
 	static inline std::size_t findFirst(const char* str, char ch)
 	{
@@ -80,6 +80,19 @@ public:
 				break;
 
 			i++;
+		}
+
+		return std::string::npos;
+	}
+
+	static inline std::size_t findLast(const char* str, char ch)
+	{
+		auto len = strlen(str);
+		std::size_t i = 0;
+		for (; i < len; i++)
+		{
+			if (str[len - 1 - i] == ch)
+				return len - 1 - i;
 		}
 
 		return std::string::npos;
@@ -218,57 +231,60 @@ public:
 		return std::move(strRet);
 	}
 
-	/** Converts the contents of the std::string to a float.
-	@remarks
-	Assumes the only contents of the std::string are a valid parsable float. Defaults to  a
-	value of 0.0 if conversion is not possible.
-	*/
-	static inline float toFloat( const std::string& str )
+	/*
+	 *	æ£€æŸ¥æ˜¯å¦ä»¥æŒ‡å®šçš„å­—ç¬¦ä¸²å¼€å§‹
+	 *	@str		è¦æ£€æŸ¥çš„å­—ç¬¦ä¸²
+	 *	@pattern	è¦åŒ¹é…çš„æ¨¡æ¿
+	 *	@ignroreCaseæ˜¯å¦å¿½ç•¥å¤§å°å†™
+	 */
+	static inline bool startsWith(const char* str, const char* pattern, bool ignoreCase = true)
 	{
-		return (float)atof(str.c_str());
-	}
-
-	static inline double toDouble( const std::string& str )
-	{
-		return atof(str.c_str());
-	}
-
-	/** Returns whether the std::string begins with the pattern passed in.
-	@param pattern The pattern to compare with.
-	@param lowerCase If true, the end of the std::string will be lower cased before
-	comparison, pattern should also be in lower case.
-	*/
-	static inline bool startsWith(const std::string& str, const std::string& pattern, bool lowerCase = true)
-	{
-		size_t thisLen = str.length();
-		size_t patternLen = pattern.length();
+		size_t thisLen = strlen(str);
+		size_t patternLen = strlen(pattern);
 		if (thisLen < patternLen || patternLen == 0)
 			return false;
 
-		std::string startOfThis = str.substr(0, patternLen);
-		if (lowerCase)
-			toLowerCase(startOfThis);
-
-		return (startOfThis == pattern);
+		if(ignoreCase)
+		{
+#ifdef _MSC_VER
+			return _strnicmp(str, pattern, patternLen) == 0;
+#else
+			return strncasecmp(str, pattern, patternLen) == 0;
+#endif
+		}
+		else
+		{
+			return strncmp(str, pattern, patternLen) == 0;
+		}
 	}
 
-	/** Returns whether the std::string ends with the pattern passed in.
-	@param pattern The pattern to compare with.
-	@param lowerCase If true, the end of the std::string will be lower cased before
-	comparison, pattern should also be in lower case.
-	*/
-	static inline bool endsWith(const std::string& str, const std::string& pattern, bool lowerCase = true)
+	/*
+	 *	æ£€æŸ¥æ˜¯å¦ä»¥æŒ‡å®šçš„å­—ç¬¦ä¸²ç»“æŸ
+	 *	@str		è¦æ£€æŸ¥çš„å­—ç¬¦ä¸²
+	 *	@pattern	è¦åŒ¹é…çš„æ¨¡æ¿
+	 *	@ignroreCaseæ˜¯å¦å¿½ç•¥å¤§å°å†™
+	 */
+	static inline bool endsWith(const char* str, const char* pattern, bool ignoreCase = true)
 	{
-		size_t thisLen = str.length();
-		size_t patternLen = pattern.length();
+		size_t thisLen = strlen(str);
+		size_t patternLen = strlen(pattern);
 		if (thisLen < patternLen || patternLen == 0)
 			return false;
 
-		std::string endOfThis = str.substr(thisLen - patternLen, patternLen);
-		if (lowerCase)
-			toLowerCase(endOfThis);
+		const char* s = str + (thisLen - patternLen);
 
-		return (endOfThis == pattern);
+		if (ignoreCase)
+		{
+#ifdef _MSC_VER
+			return _strnicmp(s, pattern, patternLen) == 0;
+#else
+			return strncasecmp(s, pattern, patternLen) == 0;
+#endif
+		}
+		else
+		{
+			return strncmp(s, pattern, patternLen) == 0;
+		}
 	}
 
 	/** Method for standardising paths - use forward slashes only, end with slash.
@@ -389,7 +405,7 @@ public:
 		return std::move(temp);
 	}
 
-	//µØÇòÈË¶¼ÖªµÀ,¶ñĞÄµÄstd::stringÊÇÃ»ÓĞCStringµÄFormatÕâ¸öº¯ÊıµÄ,ËùÒÔÎÒÃÇ×Ô¼ºÔì
+	//åœ°çƒäººéƒ½çŸ¥é“,æ¶å¿ƒçš„std::stringæ˜¯æ²¡æœ‰CStringçš„Formatè¿™ä¸ªå‡½æ•°çš„,æ‰€ä»¥æˆ‘ä»¬è‡ªå·±é€ 
 	static inline std::string printf(const char *pszFormat, ...)
 	{
 		va_list argptr;
@@ -399,7 +415,7 @@ public:
 		return std::move(result);
 	}
 
-	//µØÇòÈË¶¼ÖªµÀ,¶ñĞÄµÄstd::stringÊÇÃ»ÓĞCStringµÄFormatÕâ¸öº¯ÊıµÄ,ËùÒÔÎÒÃÇ×Ô¼ºÔì
+	//åœ°çƒäººéƒ½çŸ¥é“,æ¶å¿ƒçš„std::stringæ˜¯æ²¡æœ‰CStringçš„Formatè¿™ä¸ªå‡½æ•°çš„,æ‰€ä»¥æˆ‘ä»¬è‡ªå·±é€ 
 	static inline std::string printf2(const char *pszFormat, ...)
 	{
 		va_list argptr;
@@ -409,7 +425,7 @@ public:
 		return std::move(result);
 	}
 
-	//µØÇòÈË¶¼ÖªµÀ,¶ñĞÄµÄstd::stringÊÇÃ»ÓĞCStringµÄFormatÕâ¸öº¯ÊıµÄ,ËùÒÔÎÒÃÇ×Ô¼ºÔì
+	//åœ°çƒäººéƒ½çŸ¥é“,æ¶å¿ƒçš„std::stringæ˜¯æ²¡æœ‰CStringçš„Formatè¿™ä¸ªå‡½æ•°çš„,æ‰€ä»¥æˆ‘ä»¬è‡ªå·±é€ 
 	static inline std::string printf2(const char *pszFormat,va_list argptr)
 	{
 		int         size   = 1024;
@@ -460,7 +476,7 @@ public:
 		return std::move(ret);
 	}
 
-	//µØÇòÈË¶¼ÖªµÀ,¶ñĞÄµÄstd::stringÊÇÃ»ÓĞCStringµÄFormatÕâ¸öº¯ÊıµÄ,ËùÒÔÎÒÃÇ×Ô¼ºÔì
+	//åœ°çƒäººéƒ½çŸ¥é“,æ¶å¿ƒçš„std::stringæ˜¯æ²¡æœ‰CStringçš„Formatè¿™ä¸ªå‡½æ•°çš„,æ‰€ä»¥æˆ‘ä»¬è‡ªå·±é€ 
 	static inline std::string printf(const char* pszFormat, va_list argptr)
 	{
 		int size = 1024;
@@ -496,7 +512,7 @@ public:
 		return std::move(ret);
 	}
 
-	//È¡µÃÓÒ±ßµÄN¸ö×Ö·û
+	//å–å¾—å³è¾¹çš„Nä¸ªå­—ç¬¦
 	static inline std::string right(const std::string &src,size_t nCount)
 	{
 		if(nCount>src.length())
@@ -504,7 +520,7 @@ public:
 		return std::move(src.substr(src.length()-nCount,nCount));
 	}
 
-	//È¡×ó±ßµÄN¸ö×Ö·û
+	//å–å·¦è¾¹çš„Nä¸ªå­—ç¬¦
 	static inline std::string left(const std::string &src,size_t nCount)
 	{
 		return std::move(src.substr(0,nCount));
@@ -537,27 +553,5 @@ public:
 		ret += str.substr(lastPos, pos);
 
 		str = ret;
-	}
-
-	static inline std::string fmtInt64(int64_t v)
-	{
-		char buf[64] = { 0 };
-#ifdef _MSC_VER
-		int pos = sprintf(buf, "%I64d", v);
-#else
-		int pos = sprintf(buf, "%lld", (long long)v);
-#endif
-		return buf;
-	}
-
-	static inline std::string fmtUInt64(uint64_t v)
-	{
-		char buf[64] = { 0 };
-#ifdef _MSC_VER
-		int pos = sprintf(buf, "%I64u", v);
-#else
-		int pos = sprintf(buf, "%llu", (unsigned long long)v);
-#endif
-		return buf;
 	}
 };

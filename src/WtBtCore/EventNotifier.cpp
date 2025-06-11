@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * \file EventCaster.cpp
  * \project	WonderTrader
  *
@@ -47,16 +47,16 @@ bool EventNotifier::init(WTSVariant* cfg)
 
 	m_strURL = cfg->getCString("url");
 	std::string module = DLLHelper::wrap_module("WtMsgQue", "lib");
-	//ÏÈ¿´¹¤×÷Ä¿Â¼ÏÂÊÇ·ñÓĞ¶ÔÓ¦Ä£¿é
+	//å…ˆçœ‹å·¥ä½œç›®å½•ä¸‹æ˜¯å¦æœ‰å¯¹åº”æ¨¡å—
 	std::string dllpath = WtHelper::getCWD() + module;
-	//Èç¹ûÃ»ÓĞ,ÔòÔÙ¿´Ä£¿éÄ¿Â¼,¼´dllÍ¬Ä¿Â¼ÏÂ
+	//å¦‚æœæ²¡æœ‰,åˆ™å†çœ‹æ¨¡å—ç›®å½•,å³dllåŒç›®å½•ä¸‹
 	if (!StdFile::exists(dllpath.c_str()))
 		dllpath = WtHelper::getInstDir() + module;
 
 	DllHandle dllInst = DLLHelper::load_library(dllpath.c_str());
 	if (dllInst == NULL)
 	{
-		WTSLogger::error("MQ module %s loading failed", dllpath.c_str());
+		WTSLogger::error("MQ module %{} loading failed", dllpath.c_str());
 		return false;
 	}
 
@@ -64,7 +64,7 @@ bool EventNotifier::init(WTSVariant* cfg)
 	if (_creator == NULL)
 	{
 		DLLHelper::free_library(dllInst);
-		WTSLogger::error("MQ module %s is not compatible", dllpath.c_str());
+		WTSLogger::error("MQ module {} is not compatible", dllpath.c_str());
 		return false;
 	}
 
@@ -72,13 +72,13 @@ bool EventNotifier::init(WTSVariant* cfg)
 	_publisher = (FundPublishMessage)DLLHelper::get_symbol(dllInst, "publish_message");
 	_register = (FuncRegCallbacks)DLLHelper::get_symbol(dllInst, "regiter_callbacks");
 
-	//×¢²á»Øµ÷º¯Êı
+	//æ³¨å†Œå›è°ƒå‡½æ•°
 	_register(on_mq_log);
 	
-	//´´½¨Ò»¸öMQServer
+	//åˆ›å»ºä¸€ä¸ªMQServer
 	_mq_sid = _creator(m_strURL.c_str(), true);
 
-	WTSLogger::info("EventNotifier initialized with channel %s", m_strURL.c_str());
+	WTSLogger::info("EventNotifier initialized with channel {}", m_strURL.c_str());
 
 	return true;
 }
@@ -86,7 +86,7 @@ bool EventNotifier::init(WTSVariant* cfg)
 void EventNotifier::notifyEvent(const char* evtType)
 {
 	if (_publisher)
-		_publisher(_mq_sid, "BT_EVENT", evtType, strlen(evtType));
+		_publisher(_mq_sid, "BT_EVENT", evtType, (unsigned long)strlen(evtType));
 }
 
 void EventNotifier::notifyData(const char* topic, void* data , uint32_t dataLen)
@@ -116,5 +116,5 @@ void EventNotifier::notifyFund(const char* topic, uint32_t uDate, double total_p
 	}
 
 	if (_publisher)
-		_publisher(_mq_sid, topic, (const char*)output.c_str(), output.size());
+		_publisher(_mq_sid, topic, (const char*)output.c_str(), (unsigned long)output.size());
 }

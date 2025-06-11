@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "IExecCommand.h"
 
 NS_WTP_BEGIN
@@ -12,8 +12,8 @@ public:
 
 public:
 	/*
-	 *	³õÊ¼»¯Ö´ĞĞÆ÷
-	 *	´«Èë³õÊ¼»¯²ÎÊı
+	 *	åˆå§‹åŒ–æ‰§è¡Œå™¨
+	 *	ä¼ å…¥åˆå§‹åŒ–å‚æ•°
 	 */
 	bool init(WTSVariant* params);
 
@@ -21,7 +21,7 @@ public:
 public:
 	//////////////////////////////////////////////////////////////////////////
 	//IExecCommand
-	virtual void set_position(const faster_hashmap<LongKey, double>& targets) override;
+	virtual void set_position(const wt_hashmap<std::string, double>& targets) override;
 
 
 	virtual void on_position_changed(const char* stdCode, double targetPos) override;
@@ -34,7 +34,7 @@ private:
 
 	uint32_t			_scale;
 
-	faster_hashmap<std::string, double> _target_pos;
+	wt_hashmap<std::string, double> _target_pos;
 };
 NS_WTP_END
 

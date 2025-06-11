@@ -1,4 +1,4 @@
-#include "WtSelEngine.h"
+ï»¿#include "WtSelEngine.h"
 #include "WtDtMgr.h"
 #include "WtSelTicker.h"
 #include "TraderAdapter.h"
@@ -61,15 +61,17 @@ void WtSelEngine::on_init()
 		_evt_listener->on_initialize_event();
 }
 
-void WtSelEngine::handle_push_quote(WTSTickData* curTick, uint32_t hotFlag)
+void WtSelEngine::handle_push_quote(WTSTickData* curTick)
 {
 	if (_tm_ticker)
-		_tm_ticker->on_tick(curTick, hotFlag);
+		_tm_ticker->on_tick(curTick);
 }
 
 void WtSelEngine::on_bar(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar)
 {
-	std::string key = StrUtil::printf("%s-%s-%u", stdCode, period, times);
+	thread_local static char key[64] = { 0 };
+	fmtutil::format_to(key, "{}-{}-{}", stdCode, period, times);
+
 	const SubList& sids = _bar_sub_map[key];
 	for (auto it = sids.begin(); it != sids.end(); it++)
 	{
@@ -82,7 +84,7 @@ void WtSelEngine::on_bar(const char* stdCode, const char* period, uint32_t times
 		}
 	}
 
-	WTSLogger::info("KBar [%s#%s%d] @ %u closed", stdCode, period, times, period[0] == 'd' ? newBar->date : newBar->time);
+	WTSLogger::info("KBar [{}] @ {} closed", key, period[0] == 'd' ? newBar->date : newBar->time);
 }
 
 void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
@@ -91,7 +93,7 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 
 	_data_mgr->handle_push_quote(stdCode, curTick);
 
-	//Èç¹ûÊÇÕæÊµ´úÂë, ÔòÒª´«µİ¸øÖ´ĞĞÆ÷
+	//å¦‚æœæ˜¯çœŸå®ä»£ç , åˆ™è¦ä¼ é€’ç»™æ‰§è¡Œå™¨
 	{
 		_exec_mgr.handle_tick(stdCode, curTick);
 	}
@@ -116,16 +118,18 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 
 	/*
 	 *	By Wesley @ 2022.02.07
-	 *	ÕâÀï×öÁËÒ»¸ö³¹µ×µÄµ÷Õû
-	 *	µÚÒ»£¬¼ì²é¶©ÔÄ±ê¼Ç£¬Èç¹û±ê¼ÇÎª0£¬¼´ÎŞ¸´È¨Ä£Ê½£¬ÔòÖ±½Ó°´ÕÕÔ­Ê¼´úÂë´¥·¢ontick
-	 *	µÚ¶ş£¬Èç¹û±ê¼ÇÎª1£¬¼´Ç°¸´È¨Ä£Ê½£¬Ôò½«´úÂë×ª³Éxxxx-£¬ÔÙ´¥·¢ontick
-	 *	µÚÈı£¬Èç¹û±ê¼ÇÎª2£¬¼´ºó¸´È¨Ä£Ê½£¬Ôò½«´úÂë×ª³Éxxxx+£¬ÔÙ°ÑtickÊı¾İ×öÒ»¸öĞŞÕı£¬ÔÙ´¥·¢ontick
+	 *	è¿™é‡Œåšäº†ä¸€ä¸ªå½»åº•çš„è°ƒæ•´
+	 *	ç¬¬ä¸€ï¼Œæ£€æŸ¥è®¢é˜…æ ‡è®°ï¼Œå¦‚æœæ ‡è®°ä¸º0ï¼Œå³æ— å¤æƒæ¨¡å¼ï¼Œåˆ™ç›´æ¥æŒ‰ç…§åŸå§‹ä»£ç è§¦å‘ontick
+	 *	ç¬¬äºŒï¼Œå¦‚æœæ ‡è®°ä¸º1ï¼Œå³å‰å¤æƒæ¨¡å¼ï¼Œåˆ™å°†ä»£ç è½¬æˆxxxx-ï¼Œå†è§¦å‘ontick
+	 *	ç¬¬ä¸‰ï¼Œå¦‚æœæ ‡è®°ä¸º2ï¼Œå³åå¤æƒæ¨¡å¼ï¼Œåˆ™å°†ä»£ç è½¬æˆxxxx+ï¼Œå†æŠŠtickæ•°æ®åšä¸€ä¸ªä¿®æ­£ï¼Œå†è§¦å‘ontick
 	 */
 	if(_ready)
 	{
 		auto sit = _tick_sub_map.find(stdCode);
 		if (sit != _tick_sub_map.end())
 		{
+			uint32_t flag = get_adjusting_flag();
+
 			const SubList& sids = sit->second;
 			for (auto it = sids.begin(); it != sids.end(); it++)
 			{
@@ -154,13 +158,37 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 						{
 							WTSTickData* newTick = WTSTickData::create(curTick->getTickStruct());
 							WTSTickStruct& newTS = newTick->getTickStruct();
+							newTick->setContractInfo(curTick->getContractInfo());
 
-							//ÕâÀï×öÒ»¸ö¸´È¨Òò×ÓµÄ´¦Àí
-							double factor = _data_mgr->get_adjusting_factor(stdCode, get_trading_date());
+							//è¿™é‡Œåšä¸€ä¸ªå¤æƒå› å­çš„å¤„ç†
+							double factor = get_exright_factor(stdCode);
 							newTS.open *= factor;
 							newTS.high *= factor;
 							newTS.low *= factor;
 							newTS.price *= factor;
+
+							/*
+							 *	By Wesley @ 2022.08.15
+							 *	è¿™é‡Œå¯¹tickçš„å¤æƒåšä¸€ä¸ªå®Œå–„
+							 */
+							if (flag & 1)
+							{
+								newTS.total_volume /= factor;
+								newTS.volume /= factor;
+							}
+
+							if (flag & 2)
+							{
+								newTS.total_turnover *= factor;
+								newTS.turn_over *= factor;
+							}
+
+							if (flag & 4)
+							{
+								newTS.open_interest /= factor;
+								newTS.diff_interest /= factor;
+								newTS.pre_interest /= factor;
+							}
 
 							_price_map[wCode] = newTS.price;
 
@@ -180,7 +208,7 @@ void WtSelEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 
 void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 {
-	//Òª±È½ÏÏÂÒ»·ÖÖÓµÄÊ±¼ä
+	//è¦æ¯”è¾ƒä¸‹ä¸€åˆ†é’Ÿçš„æ—¶é—´
 	uint32_t nextTime = TimeUtils::getNextMinute(curTime, 1);
 	if (nextTime < curTime)
 		curDate = TimeUtils::getNextDate(curDate);
@@ -200,7 +228,7 @@ void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 		if (_base_data_mgr->isHoliday(tInfo->_trdtpl, curDate, true))
 			continue;
 
-		//»ñÈ¡ÉÏÒ»¸ö½»Ò×ÈÕµÄÈÕÆÚ
+		//è·å–ä¸Šä¸€ä¸ªäº¤æ˜“æ—¥çš„æ—¥æœŸ
 		uint32_t preTDate = TimeUtils::getNextDate(_cur_date, -1);
 		bool bHasHoliday = false;
 		uint32_t days = 1;
@@ -222,8 +250,8 @@ void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 			break;
 		case TPT_Minute:
 			{
-				uint32_t minutes = sInfo->timeToMinutes(curTime);	//ÏÈ½«Ê±¼ä×ª»»³É·ÖÖÓÊı
-				if(minutes != 0 && (minutes%tInfo->_time == 0))		//Èç¹û·ÖÖÓÊıÄÜ±»Õû³ı,ÇÒ²»Îª0,Ôò¿ÉÒÔ´¥·¢
+				uint32_t minutes = sInfo->timeToMinutes(curTime);	//å…ˆå°†æ—¶é—´è½¬æ¢æˆåˆ†é’Ÿæ•°
+				if(minutes != 0 && (minutes%tInfo->_time == 0))		//å¦‚æœåˆ†é’Ÿæ•°èƒ½è¢«æ•´é™¤,ä¸”ä¸ä¸º0,åˆ™å¯ä»¥è§¦å‘
 				{
 					bIgnore = false;
 				}
@@ -236,15 +264,15 @@ void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 				bIgnore = false;
 			else if (bHasHoliday)
 			{
-				//ÉÏÒ»¸ö½»Ò×ÈÕÔÚÉÏ¸öÔÂ,ÇÒµ±Ç°ÈÕÆÚ´óÓÚ´¥·¢ÈÕÆÚ
-				//ËµÃ÷Õâ¸öÔÂµÄ¿ªÊ¼ÈÕÆÚÔÚ½Ú¼ÙÈÕÄÚ,Ë³ÑÓµ½½ñÌì
+				//ä¸Šä¸€ä¸ªäº¤æ˜“æ—¥åœ¨ä¸Šä¸ªæœˆ,ä¸”å½“å‰æ—¥æœŸå¤§äºè§¦å‘æ—¥æœŸ
+				//è¯´æ˜è¿™ä¸ªæœˆçš„å¼€å§‹æ—¥æœŸåœ¨èŠ‚å‡æ—¥å†…,é¡ºå»¶åˆ°ä»Šå¤©
 				if ((preTDate % 10000 / 100 < _cur_date % 10000 / 100) && _cur_date % 1000000 > tInfo->_day)
 				{
 					bIgnore = false;
 				}
 				else if (preTDate % 1000000 < tInfo->_day && _cur_date % 1000000 > tInfo->_day)
 				{
-					//ÉÏÒ»¸ö½»Ò×ÈÕÔÚÍ¬Ò»¸öÔÂ,ÇÒĞ¡ÓÚ´¥·¢ÈÕÆÚ,µ«ÊÇ½ñÌì´óÓÚ´¥·¢ÈÕÆÚ,ËµÃ÷ÕıÈ·´¥·¢ÈÕÆÚµ½½Ú¼ÙÈÕÄÚ,Ë³ÑÓµ½½ñÌì
+					//ä¸Šä¸€ä¸ªäº¤æ˜“æ—¥åœ¨åŒä¸€ä¸ªæœˆ,ä¸”å°äºè§¦å‘æ—¥æœŸ,ä½†æ˜¯ä»Šå¤©å¤§äºè§¦å‘æ—¥æœŸ,è¯´æ˜æ­£ç¡®è§¦å‘æ—¥æœŸåˆ°èŠ‚å‡æ—¥å†…,é¡ºå»¶åˆ°ä»Šå¤©
 					bIgnore = false;
 				}
 			}
@@ -262,7 +290,7 @@ void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 				}
 				else if (preWD > weekDay && weekDay > tInfo->_day)
 				{
-					//ÉÏÒ»¸ö½»Ò×ÈÕµÄĞÇÆÚ´óÓÚ½ñÌìµÄĞÇÆÚ,ËµÃ÷»»ÁËÒ»ÖÜÁË
+					//ä¸Šä¸€ä¸ªäº¤æ˜“æ—¥çš„æ˜ŸæœŸå¤§äºä»Šå¤©çš„æ˜ŸæœŸ,è¯´æ˜æ¢äº†ä¸€å‘¨äº†
 					bIgnore = false;
 				}
 				else if (preWD < tInfo->_day && weekDay > tInfo->_day)
@@ -280,7 +308,7 @@ void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 		if (bIgnore)
 			continue;
 
-		//TODO: »Øµ÷ÈÎÎñ
+		//TODO: å›è°ƒä»»åŠ¡
 		SelContextPtr ctx = getContext(tInfo->_id);
 		StdThreadPtr thrd(new StdThread([ctx, curDate, curTime, nextTime](){
 			if (ctx)
@@ -291,13 +319,13 @@ void WtSelEngine::on_minute_end(uint32_t curDate, uint32_t curTime)
 	}
 }
 
-void WtSelEngine::run(bool bAsync /*= false*/)
+void WtSelEngine::run()
 {
 	WTSVariant* cfgProd = _cfg->get("product");
 	_tm_ticker = new WtSelRtTicker(this);
 	_tm_ticker->init(_data_mgr->reader(), cfgProd->getCString("session"));
 
-	//Æô¶¯Ö®Ç°,ÏÈ°ÑÔËĞĞÖĞµÄ²ßÂÔÂäµØ
+	//å¯åŠ¨ä¹‹å‰,å…ˆæŠŠè¿è¡Œä¸­çš„ç­–ç•¥è½åœ°
 	{
 		rj::Document root(rj::kObjectType);
 		rj::Document::AllocatorType &allocator = root.GetAllocator();
@@ -350,7 +378,7 @@ void WtSelEngine::addContext(SelContextPtr ctx, uint32_t date, uint32_t time, Ta
 	auto it = _tasks.find(ctx->id());
 	if(it != _tasks.end())
 	{
-		WTSLogger::error("Task registration failed: task id %u already registered", ctx->id());
+		WTSLogger::error("Task registration failed: task id {} already registered", ctx->id());
 		return;
 	}
 
@@ -379,55 +407,75 @@ SelContextPtr WtSelEngine::getContext(uint32_t id)
 	return it->second;
 }
 
-void WtSelEngine::handle_pos_change(const char* stdCode, double diffQty)
+void WtSelEngine::handle_pos_change(const char* straName, const char* stdCode, double diffQty)
 {
+	//è¿™é‡Œæ˜¯æŒä»“å¢é‡,æ‰€ä»¥ä¸ç”¨å¤„ç†æœªè¿‡æ»¤çš„æƒ…å†µ,å› ä¸ºå¢é‡æƒ…å†µä¸‹,ä¸ä¼šæ”¹å˜ç›®æ ‡diffQty
+	if (_filter_mgr.is_filtered_by_strategy(straName, diffQty, true))
+	{
+		//è¾“å‡ºæ—¥å¿—
+		WTSLogger::info("[Filters] Target position of {} of strategy {} ignored by strategy filter", stdCode, straName);
+		return;
+	}
+
 	std::string realCode = stdCode;
-	if (CodeHelper::isStdFutHotCode(stdCode))
+	//const char* ruleTag = _hot_mgr->getRuleTag(stdCode);
+	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+	if (strlen(cInfo._ruletag) > 0)
 	{
-		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-		std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
+		std::string code = _hot_mgr->getCustomRawCode(cInfo._ruletag, cInfo.stdCommID(), _cur_tdate);
 		realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
 	}
-	else if (CodeHelper::isStdFut2ndCode(stdCode))
-	{
-		CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
-		std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
-		realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
-	}
+	//else if (CodeHelper::isStdFutHotCode(stdCode))
+	//{
+	//	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	//	std::string code = _hot_mgr->getRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
+	//	realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
+	//}
+	//else if (CodeHelper::isStdFut2ndCode(stdCode))
+	//{
+	//	CodeHelper::CodeInfo cInfo = CodeHelper::extractStdCode(stdCode);
+	//	std::string code = _hot_mgr->getSecondRawCode(cInfo._exchg, cInfo._product, _cur_tdate);
+	//	realCode = CodeHelper::rawMonthCodeToStdCode(code.c_str(), cInfo._exchg);
+	//}
 
-	PosInfo& pItem = _pos_map[realCode];
-	double targetPos = pItem._volume + diffQty;
-
+	PosInfoPtr& pInfo = _pos_map[realCode];
+	if (pInfo == NULL)
+		pInfo.reset(new PosInfo);
 	bool bRiskEnabled = false;
 	if (!decimal::eq(_risk_volscale, 1.0) && _risk_date == _cur_tdate)
 	{
-		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of Strategy Group is %.2f", _risk_volscale);
+		WTSLogger::log_by_cat("risk", LL_INFO, "Risk scale of portfolio is {:.2f}", _risk_volscale);
 		bRiskEnabled = true;
 	}
-	if (bRiskEnabled && targetPos != 0)
+	if (bRiskEnabled && diffQty != 0)
 	{
-		double symbol = targetPos / abs(targetPos);
-		targetPos = decimal::rnd(abs(targetPos)*_risk_volscale)*symbol;
+		double symbol = diffQty / abs(diffQty);
+		diffQty = decimal::rnd(abs(diffQty)*_risk_volscale)*symbol;
 	}
+	double targetPos = pInfo->_volume + diffQty;
 
 	append_signal(realCode.c_str(), targetPos, false);
 	save_datas();
 
-	_exec_mgr.handle_pos_change(realCode.c_str(), targetPos);
+	const auto& exec_ids = _exec_mgr.get_route(straName);
+	for (auto& execid : exec_ids)
+		_exec_mgr.handle_pos_change(realCode.c_str(), targetPos, diffQty, execid.c_str());
 }
 
 WTSCommodityInfo* WtSelEngine::get_comm_info(const char* stdCode)
 {
-	return _base_data_mgr->getCommodity(CodeHelper::stdCodeToStdCommID(stdCode).c_str());
+	CodeHelper::CodeInfo codeInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+	return _base_data_mgr->getCommodity(codeInfo._exchg, codeInfo._product);
 }
 
 WTSSessionInfo* WtSelEngine::get_sess_info(const char* stdCode)
 {
-	WTSCommodityInfo* cInfo = _base_data_mgr->getCommodity(CodeHelper::stdCodeToStdCommID(stdCode).c_str());
+	CodeHelper::CodeInfo codeInfo = CodeHelper::extractStdCode(stdCode, _hot_mgr);
+	WTSCommodityInfo* cInfo = _base_data_mgr->getCommodity(codeInfo._exchg, codeInfo._product);
 	if (cInfo == NULL)
 		return NULL;
 
-	return _base_data_mgr->getSession(cInfo->getSession());
+	return cInfo->getSessionInfo();
 }
 
 uint64_t WtSelEngine::get_real_time()

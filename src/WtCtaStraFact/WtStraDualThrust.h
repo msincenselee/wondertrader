@@ -1,4 +1,4 @@
-#pragma once
+ï»¿#pragma once
 #include "../Includes/CtaStrategyDefs.h"
 
 class WtStraDualThrust : public CtaStrategy
@@ -20,18 +20,22 @@ public:
 
 	virtual void on_tick(ICtaStraCtx* ctx, const char* stdCode, WTSTickData* newTick) override;
 
+	virtual void on_session_begin(ICtaStraCtx* ctx, uint32_t uTDate) override;
+
 private:
-	//Ö¸±ê²ÎÊı
+	//æŒ‡æ ‡å‚æ•°
 	double		_k1;
 	double		_k2;
 	uint32_t	_days;
 
-	//Êı¾İÖÜÆÚ
+	std::string _moncode;
+
+	//æ•°æ®å‘¨æœŸ
 	std::string _period;
-	//KÏßÌõÊı
+	//Kçº¿æ¡æ•°
 	uint32_t	_count;
 
-	//ºÏÔ¼´úÂë
+	//åˆçº¦ä»£ç 
 	std::string _code;
 
 	bool		_isstk;

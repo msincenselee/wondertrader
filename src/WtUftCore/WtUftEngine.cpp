@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
  * \file WtHftEngine.cpp
  * \project	WonderTrader
  *
@@ -25,15 +25,12 @@
 
 #include "../WTSTools/WTSLogger.h"
 
-#include <boost/asio.hpp>
-
-boost::asio::io_service g_asyncIO;
-
 USING_NS_WTP;
 
 WtUftEngine::WtUftEngine()
 	: _cfg(NULL)
 	, _tm_ticker(NULL)
+	, _notifier(NULL)
 {
 	TimeUtils::getDateTime(_cur_date, _cur_time);
 	_cur_secs = _cur_time % 100000;
@@ -160,37 +157,39 @@ void WtUftEngine::sub_tick(uint32_t sid, const char* stdCode)
 
 double WtUftEngine::get_cur_price(const char* stdCode)
 {
-	auto it = _price_map.find(stdCode);
-	if (it == _price_map.end())
-	{
-		WTSTickData* lastTick = _data_mgr->grab_last_tick(stdCode);
-		if (lastTick == NULL)
-			return 0.0;
+	WTSTickData* lastTick = _data_mgr->grab_last_tick(stdCode);
+	if (lastTick == NULL)
+		return 0.0;
 
-		double ret = lastTick->price();
-		lastTick->release();
-		_price_map[stdCode] = ret;
-		return ret;
-	}
-	else
+	double ret = lastTick->price();
+	lastTick->release();
+	return ret;
+}
+
+void WtUftEngine::notify_params_update(const char* name)
+{
+	for(auto& v : _ctx_map)
 	{
-		return it->second;
+		const UftContextPtr& context = v.second;
+		if(strcmp(context->name(), name) == 0)
+		{
+			context->on_params_updated();
+			break;
+		}
 	}
 }
 
-
-void WtUftEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtUftDtMgr* dataMgr)
+void WtUftEngine::init(WTSVariant* cfg, IBaseDataMgr* bdMgr, WtUftDtMgr* dataMgr, EventNotifier* notifier)
 {
 	_base_data_mgr = bdMgr;
 	_data_mgr = dataMgr;
-
-	WTSLogger::info("Platform running mode: Production");
+	_notifier = notifier;
 
 	_cfg = cfg;
 	if(_cfg) _cfg->retain();
 }
 
-void WtUftEngine::run(bool bAsync /*= false*/)
+void WtUftEngine::run()
 {
 	for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
 	{
@@ -210,12 +209,6 @@ void WtUftEngine::run(bool bAsync /*= false*/)
 	}
 
 	_tm_ticker->run();
-
-	if (!bAsync)
-	{
-		boost::asio::io_service::work work(g_asyncIO);
-		g_asyncIO.run();
-	}
 }
 
 void WtUftEngine::handle_push_quote(WTSTickData* newTick)
@@ -234,8 +227,8 @@ void WtUftEngine::handle_push_order_detail(WTSOrdDtlData* curOrdDtl)
 		for (auto it = sids.begin(); it != sids.end(); it++)
 		{
 			//By Wesley @ 2022.02.07
-			//Level2Êý¾ÝÒ»°ãÓÃÓÚHFT³¡¾°£¬ËùÒÔ²»×ö¸´È¨´¦Àí
-			//ËùÒÔ²»¶ÁÈ¡¶©ÔÄ±ê¼Ç
+			//Level2æ•°æ®ä¸€èˆ¬ç”¨äºŽHFTåœºæ™¯ï¼Œæ‰€ä»¥ä¸åšå¤æƒå¤„ç†
+			//æ‰€ä»¥ä¸è¯»å–è®¢é˜…æ ‡è®°
 			uint32_t sid = *it;
 			auto cit = _ctx_map.find(sid);
 			if (cit != _ctx_map.end())
@@ -257,8 +250,8 @@ void WtUftEngine::handle_push_order_queue(WTSOrdQueData* curOrdQue)
 		for (auto it = sids.begin(); it != sids.end(); it++)
 		{
 			//By Wesley @ 2022.02.07
-			//Level2Êý¾ÝÒ»°ãÓÃÓÚHFT³¡¾°£¬ËùÒÔ²»×ö¸´È¨´¦Àí
-			//ËùÒÔ²»¶ÁÈ¡¶©ÔÄ±ê¼Ç
+			//Level2æ•°æ®ä¸€èˆ¬ç”¨äºŽHFTåœºæ™¯ï¼Œæ‰€ä»¥ä¸åšå¤æƒå¤„ç†
+			//æ‰€ä»¥ä¸è¯»å–è®¢é˜…æ ‡è®°
 			uint32_t sid = *it;
 			auto cit = _ctx_map.find(sid);
 			if (cit != _ctx_map.end())
@@ -280,8 +273,8 @@ void WtUftEngine::handle_push_transaction(WTSTransData* curTrans)
 		for (auto it = sids.begin(); it != sids.end(); it++)
 		{
 			//By Wesley @ 2022.02.07
-			//Level2Êý¾ÝÒ»°ãÓÃÓÚHFT³¡¾°£¬ËùÒÔ²»×ö¸´È¨´¦Àí
-			//ËùÒÔ²»¶ÁÈ¡¶©ÔÄ±ê¼Ç
+			//Level2æ•°æ®ä¸€èˆ¬ç”¨äºŽHFTåœºæ™¯ï¼Œæ‰€ä»¥ä¸åšå¤æƒå¤„ç†
+			//æ‰€ä»¥ä¸è¯»å–è®¢é˜…æ ‡è®°
 			uint32_t sid = *it;
 			auto cit = _ctx_map.find(sid);
 			if (cit != _ctx_map.end())
@@ -313,7 +306,7 @@ void WtUftEngine::sub_transaction(uint32_t sid, const char* stdCode)
 
 void WtUftEngine::on_session_begin()
 {
-	WTSLogger::info("Trading day %u begun", _cur_tdate);
+	WTSLogger::info("Trading day {} begun", _cur_tdate);
 
 	for (auto it = _ctx_map.begin(); it != _ctx_map.end(); it++)
 	{
@@ -330,13 +323,11 @@ void WtUftEngine::on_session_end()
 		ctx->on_session_end(_cur_tdate);
 	}
 
-	WTSLogger::info("Trading day %u ended", _cur_tdate);
+	WTSLogger::info("Trading day {} ended", _cur_tdate);
 }
 
 void WtUftEngine::on_tick(const char* stdCode, WTSTickData* curTick)
 {
-	_price_map[stdCode] = curTick->price();
-
 	if(_data_mgr)
 		_data_mgr->handle_push_quote(stdCode, curTick);
 

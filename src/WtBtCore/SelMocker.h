@@ -1,4 +1,4 @@
-/*!
+ï»¿/*!
 * \file MfMocker.h
 * \project	WonderTrader
 *
@@ -27,42 +27,45 @@ class HisDataReplayer;
 class SelMocker : public ISelStraCtx, public IDataSink
 {
 public:
-	SelMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0);
+	SelMocker(HisDataReplayer* replayer, const char* name, int32_t slippage = 0, bool isRatioSlp = false);
 	virtual ~SelMocker();
 
 private:
 	template<typename... Args>
 	void log_debug(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_debug(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_debug(buffer);
 	}
 
 	template<typename... Args>
 	void log_info(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_info(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_info(buffer);
 	}
 
 	template<typename... Args>
 	void log_error(const char* format, const Args& ...args)
 	{
-		std::string s = fmt::sprintf(format, args...);
-		stra_log_error(s.c_str());
+		const char* buffer = fmtutil::format(format, args...);
+		stra_log_error(buffer);
 	}
 
 private:
 	void	dump_outputs();
+	void	dump_stradata();
 	inline void log_signal(const char* stdCode, double target, double price, uint64_t gentime, const char* usertag = "");
 	inline void	log_trade(const char* stdCode, bool isLong, bool isOpen, uint64_t curTime, double price, double qty, const char* userTag = "", double fee = 0.0);
 	inline void	log_close(const char* stdCode, bool isLong, uint64_t openTime, double openpx, uint64_t closeTime, double closepx, double qty,
-		double profit, double totalprofit = 0, const char* enterTag = "", const char* exitTag = "");
+		double profit, double maxprofit, double maxloss, double totalprofit = 0, const char* enterTag = "", const char* exitTag = "", uint32_t openBarNo = 0, uint32_t closeBarNo = 0);
 
 	void	update_dyn_profit(const char* stdCode, double price);
 
 	void	do_set_position(const char* stdCode, double qty, double price = 0.0, const char* userTag = "", bool bTriggered = false);
 	void	append_signal(const char* stdCode, double qty, const char* userTag = "", double price = 0.0);
+
+	void	proc_tick(const char* stdCode, double last_px, double cur_px);
 
 public:
 	bool	init_sel_factory(WTSVariant* cfg);
@@ -70,7 +73,7 @@ public:
 public:
 	//////////////////////////////////////////////////////////////////////////
 	//IDataSink
-	virtual void	handle_tick(const char* stdCode, WTSTickData* curTick) override;
+	virtual void	handle_tick(const char* stdCode, WTSTickData* curTick, uint32_t pxType) override;
 	virtual void	handle_bar_close(const char* stdCode, const char* period, uint32_t times, WTSBarStruct* newBar) override;
 	virtual void	handle_schedule(uint32_t uDate, uint32_t uTime) override;
 
@@ -83,7 +86,7 @@ public:
 	//ICtaStraCtx
 	virtual uint32_t id() { return _context_id; }
 
-	//»Øµ÷º¯Êı
+	//å›è°ƒå‡½æ•°
 	virtual void on_init() override;
 	virtual void on_session_begin(uint32_t curTDate) override;
 	virtual void on_session_end(uint32_t curTDate) override;
@@ -98,13 +101,33 @@ public:
 
 
 	//////////////////////////////////////////////////////////////////////////
-	//²ßÂÔ½Ó¿Ú
+	//ç­–ç•¥æ¥å£
 	virtual double stra_get_position(const char* stdCode, bool bOnlyValid = false, const char* userTag = "") override;
 	virtual void stra_set_position(const char* stdCode, double qty, const char* userTag = "") override;
 	virtual double stra_get_price(const char* stdCode) override;
 
+	/*
+	 *	è¯»å–å½“æ—¥ä»·æ ¼
+	 */
+	virtual double stra_get_day_price(const char* stdCode, int flag = 0) override;
+
+	virtual uint32_t stra_get_tdate() override;
 	virtual uint32_t stra_get_date() override;
 	virtual uint32_t stra_get_time() override;
+
+	virtual double stra_get_fund_data(int flag = 0) override;
+
+	virtual uint64_t stra_get_first_entertime(const char* stdCode) override;
+	virtual uint64_t stra_get_last_entertime(const char* stdCode) override;
+	virtual uint64_t stra_get_last_exittime(const char* stdCode) override;
+	virtual double stra_get_last_enterprice(const char* stdCode) override;
+	virtual const char* stra_get_last_entertag(const char* stdCode) override;
+	virtual double stra_get_position_avgpx(const char* stdCode) override;
+	virtual double stra_get_position_profit(const char* stdCode) override;
+
+	virtual uint64_t stra_get_detail_entertime(const char* stdCode, const char* userTag) override;
+	virtual double stra_get_detail_cost(const char* stdCode, const char* userTag) override;
+	virtual double stra_get_detail_profit(const char* stdCode, const char* userTag, int flag = 0) override;
 
 	virtual WTSCommodityInfo* stra_get_comminfo(const char* stdCode) override;
 	virtual WTSSessionInfo* stra_get_sessinfo(const char* stdCode) override;
@@ -112,10 +135,16 @@ public:
 	virtual WTSTickSlice*	stra_get_ticks(const char* stdCode, uint32_t count) override;
 	virtual WTSTickData*	stra_get_last_tick(const char* stdCode) override;
 
+	/*
+	 *	è·å–åˆ†æœˆåˆçº¦ä»£ç 
+	 */
+	virtual std::string		stra_get_rawcode(const char* stdCode) override;
+
 	virtual void stra_sub_ticks(const char* stdCode) override;
 
 	virtual void stra_log_info(const char* message) override;
 	virtual void stra_log_debug(const char* message) override;
+	virtual void stra_log_warn(const char* message) override;
 	virtual void stra_log_error(const char* message) override;
 
 	virtual void stra_save_user_data(const char* key, const char* val) override;
@@ -126,24 +155,27 @@ protected:
 	uint32_t			_context_id;
 	HisDataReplayer*	_replayer;
 
-	uint64_t		_total_calc_time;	//×Ü¼ÆËãÊ±¼ä
-	uint32_t		_emit_times;		//×Ü¼ÆËã´ÎÊı
-	int32_t			_slippage;	//³É½»»¬µã
+	uint64_t		_total_calc_time;	//æ€»è®¡ç®—æ—¶é—´
+	uint32_t		_emit_times;		//æ€»è®¡ç®—æ¬¡æ•°
+	int32_t			_slippage;			//æˆäº¤æ»‘ç‚¹
+	bool			_ratio_slippage;	//æ˜¯å¦æ¯”ä¾‹æ»‘ç‚¹
+	uint32_t		_schedule_times;	//è°ƒåº¦æ¬¡æ•°
 
 	std::string		_main_key;
 
 	typedef struct _KlineTag
 	{
-		bool			_closed;
+		bool		_closed;
+		uint32_t	_count;
 
-		_KlineTag() :_closed(false){}
+		_KlineTag() :_closed(false), _count(0){}
 
 	} KlineTag;
-	typedef faster_hashmap<std::string, KlineTag> KlineTags;
+	typedef wt_hashmap<std::string, KlineTag> KlineTags;
 	KlineTags	_kline_tags;
 
 	typedef std::pair<double, uint64_t>	PriceInfo;
-	typedef faster_hashmap<std::string, PriceInfo> PriceMap;
+	typedef wt_hashmap<std::string, PriceInfo> PriceMap;
 	PriceMap		_price_map;
 
 	typedef struct _DetailInfo
@@ -155,8 +187,11 @@ protected:
 		uint32_t	_opentdate;
 		double		_max_profit;
 		double		_max_loss;
+		double		_max_price;
+		double		_min_price;
 		double		_profit;
 		char		_opentag[32];
+		uint32_t	_open_barno;
 
 		_DetailInfo()
 		{
@@ -169,6 +204,8 @@ protected:
 		double		_volume;
 		double		_closeprofit;
 		double		_dynprofit;
+		uint64_t	_last_entertime;
+		uint64_t	_last_exittime;
 		double		_frozen;
 
 		std::vector<DetailInfo> _details;
@@ -179,11 +216,13 @@ protected:
 			_closeprofit = 0;
 			_dynprofit = 0;
 			_frozen = 0;
+			_last_entertime = 0;
+			_last_exittime = 0;
 		}
 
 		inline double valid() const { return _volume - _frozen; }
 	} PosInfo;
-	typedef faster_hashmap<std::string, PosInfo> PositionMap;
+	typedef wt_hashmap<std::string, PosInfo> PositionMap;
 	PositionMap		_pos_map;
 
 	typedef struct _SigInfo
@@ -204,19 +243,20 @@ protected:
 			_gentime = 0;
 		}
 	}SigInfo;
-	typedef faster_hashmap<std::string, SigInfo>	SignalMap;
+	typedef wt_hashmap<std::string, SigInfo>	SignalMap;
 	SignalMap		_sig_map;
 
 	std::stringstream	_trade_logs;
 	std::stringstream	_close_logs;
 	std::stringstream	_fund_logs;
 	std::stringstream	_sig_logs;
+	std::stringstream	_pos_logs;
 
-	//ÊÇ·ñ´¦ÓÚµ÷¶ÈÖĞµÄ±ê¼Ç
-	bool			_is_in_schedule;	//ÊÇ·ñÔÚ×Ô¶¯µ÷¶ÈÖĞ
+	//æ˜¯å¦å¤„äºè°ƒåº¦ä¸­çš„æ ‡è®°
+	bool			_is_in_schedule;	//æ˜¯å¦åœ¨è‡ªåŠ¨è°ƒåº¦ä¸­
 
-	//ÓÃ»§Êı¾İ
-	typedef faster_hashmap<std::string, std::string> StringHashMap;
+	//ç”¨æˆ·æ•°æ®
+	typedef wt_hashmap<std::string, std::string> StringHashMap;
 	StringHashMap	_user_datas;
 	bool			_ud_modified;
 
@@ -258,6 +298,8 @@ protected:
 
 	SelStrategy*	_strategy;
 
-	//tick¶©ÔÄÁĞ±í
-	faster_hashset<std::string> _tick_subs;
+	uint32_t		_cur_tdate;
+
+	//tickè®¢é˜…åˆ—è¡¨
+	wt_hashset<std::string> _tick_subs;
 };

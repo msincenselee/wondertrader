@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * \file WtBtPorter.h
  * \project	WonderTrader
  *
@@ -18,7 +18,7 @@ extern "C"
 	EXPORT_FLAG	void		register_evt_callback(FuncEventCallback cbEvt);
 
 	EXPORT_FLAG	void		register_cta_callbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, 
-		FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone);
+		FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone, FuncStraCondTriggerCallback cbCondTrigger = NULL);
 
 	EXPORT_FLAG	void		register_sel_callbacks(FuncStraInitCallback cbInit, FuncStraTickCallback cbTick, FuncStraCalcCallback cbCalc, 
 		FuncStraBarCallback cbBar, FuncSessionEvtCallback cbSessEvt, FuncStraCalcCallback cbCalcDone);
@@ -43,11 +43,11 @@ extern "C"
 
 	EXPORT_FLAG	void		enable_tick(bool bEnabled = true);
 
-	EXPORT_FLAG	CtxHandler	init_cta_mocker(const char* name, int slippage = 0, bool hook = false, bool persistData = true);
+	EXPORT_FLAG	CtxHandler	init_cta_mocker(const char* name, int slippage = 0, bool hook = false, bool persistData = true, bool bIncremental = false, bool bRatioSlp = false);
 
 	EXPORT_FLAG	CtxHandler	init_hft_mocker(const char* name, bool hook = false);
 
-	EXPORT_FLAG	CtxHandler	init_sel_mocker(const char* name, WtUInt32 date, WtUInt32 time, const char* period, const char* trdtpl = "CHINA", const char* session = "TRADING", int slippage = 0);
+	EXPORT_FLAG	CtxHandler	init_sel_mocker(const char* name, WtUInt32 date, WtUInt32 time, const char* period, const char* trdtpl = "CHINA", const char* session = "TRADING", int slippage = 0, bool bRatioSlp = false);
 
 	EXPORT_FLAG	void		run_backtest(bool bNeedDump, bool bAsync);
 
@@ -61,10 +61,12 @@ extern "C"
 
 	EXPORT_FLAG	void		stop_backtest();
 
+	EXPORT_FLAG	WtString	get_raw_stdcode(const char* stdCode);
+
 
 	//////////////////////////////////////////////////////////////////////////
-	//CTA���Խӿ�
-#pragma region "CTA�ӿ�"
+	//CTA策略接口
+#pragma region "CTA接口"
 	EXPORT_FLAG	void		cta_enter_long(CtxHandler cHandle, const char* stdCode, double qty, const char* userTag, double limitprice, double stopprice);
 
 	EXPORT_FLAG	void		cta_exit_long(CtxHandler cHandle, const char* stdCode, double qty, const char* userTag, double limitprice, double stopprice);
@@ -89,6 +91,8 @@ extern "C"
 
 	EXPORT_FLAG	double 		cta_get_price(const char* stdCode);
 
+	EXPORT_FLAG	double 		cta_get_day_price(const char* stdCode, int flag);
+
 	EXPORT_FLAG	double		cta_get_fund_data(CtxHandler cHandle, int flag);
 
 	EXPORT_FLAG	WtUInt32 	cta_get_tdate();
@@ -111,7 +115,9 @@ extern "C"
 
 	EXPORT_FLAG	double		cta_get_last_enterprice(CtxHandler cHandle, const char* stdCode);
 
-	EXPORT_FLAG	void		cta_log_text(CtxHandler cHandle, const char* message);
+	EXPORT_FLAG	WtString	cta_get_last_entertag(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	void		cta_log_text(CtxHandler cHandle, WtUInt32 level, const char* message);
 
 	EXPORT_FLAG	void		cta_save_userdata(CtxHandler cHandle, const char* key, const char* val);
 
@@ -119,12 +125,56 @@ extern "C"
 
 	EXPORT_FLAG	void		cta_sub_ticks(CtxHandler cHandle, const char* stdCode);
 
+	EXPORT_FLAG	void		cta_sub_bar_events(CtxHandler cHandle, const char* stdCode, const char* period);
+
 	EXPORT_FLAG	bool		cta_step(CtxHandler cHandle);
-#pragma endregion "CTA�ӿ�"
+
+	/*
+	 *	设置图表K线
+	 */
+	EXPORT_FLAG void		cta_set_chart_kline(CtxHandler cHandle, const char* stdCode, const char* period);
+
+	/*
+	 *	添加信号
+	 */
+	EXPORT_FLAG void		cta_add_chart_mark(CtxHandler cHandle, double price, const char* icon, const char* tag);
+
+	/*
+	 *	添加指标
+	 *	@idxName	指标名称
+	 *	@indexType	指标类型：0-主图指标，1-副图指标
+	 */
+	EXPORT_FLAG void		cta_register_index(CtxHandler cHandle, const char* idxName, WtUInt32 indexType);
+
+	/*
+	 *	添加指标线
+	 *	@idxName	指标名称
+	 *	@lineName	线条名称
+	 *	@lineType	线性，0-曲线
+	 */
+	EXPORT_FLAG bool		cta_register_index_line(CtxHandler cHandle, const char* idxName, const char* lineName, WtUInt32 lineType);
+
+	/*
+	 *	添加基准线
+	 *	@idxName	指标名称
+	 *	@lineName	线条名称
+	 *	@val		数值
+	 */
+	EXPORT_FLAG bool		cta_add_index_baseline(CtxHandler cHandle, const char* idxName, const char* lineName, double val);
+
+	/*
+	 *	设置指标值
+	 *	@idxName	指标名称
+	 *	@lineName	线条名称
+	 *	@val		指标值
+	 */
+	EXPORT_FLAG bool		cta_set_index_value(CtxHandler cHandle, const char* idxName, const char* lineName, double val);
+
+#pragma endregion "CTA接口"
 
 	//////////////////////////////////////////////////////////////////////////
-	//ѡ�ɲ��Խӿ�
-#pragma  region "SEL�ӿ�"
+	//选股策略接口
+#pragma  region "SEL接口"
 	EXPORT_FLAG	double		sel_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid, const char* openTag);
 
 	EXPORT_FLAG	void		sel_set_position(CtxHandler cHandle, const char* stdCode, double qty, const char* uesrTag);
@@ -141,22 +191,53 @@ extern "C"
 
 	EXPORT_FLAG void		sel_get_all_position(CtxHandler cHandle, FuncGetPositionCallback cb);
 
-	EXPORT_FLAG	void		sel_log_text(CtxHandler cHandle, const char* message);
+	EXPORT_FLAG	void		sel_log_text(CtxHandler cHandle, WtUInt32 level, const char* message);
 
 	EXPORT_FLAG	void		sel_save_userdata(CtxHandler cHandle, const char* key, const char* val);
 
 	EXPORT_FLAG	WtString	sel_load_userdata(CtxHandler cHandle, const char* key, const char* defVal);
 
 	EXPORT_FLAG	void		sel_sub_ticks(CtxHandler cHandle, const char* stdCode);
-#pragma endregion "SEL�ӿ�"
+
+	//By Wesley @ 2023.05.17
+	//扩展SEL的接口，主要是和CTA接口做一个同步
+	EXPORT_FLAG	double		sel_get_position_profit(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	WtUInt64	sel_get_detail_entertime(CtxHandler cHandle, const char* stdCode, const char* openTag);
+
+	EXPORT_FLAG	double		sel_get_detail_cost(CtxHandler cHandle, const char* stdCode, const char* openTag);
+
+	EXPORT_FLAG	double		sel_get_detail_profit(CtxHandler cHandle, const char* stdCode, const char* openTag, int flag);
+
+	EXPORT_FLAG	double		sel_get_position_avgpx(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	double 		sel_get_day_price(const char* stdCode, int flag);
+
+	EXPORT_FLAG	double		sel_get_fund_data(CtxHandler cHandle, int flag);
+
+	EXPORT_FLAG	WtUInt32 	sel_get_tdate();
+
+	EXPORT_FLAG	WtUInt64	sel_get_first_entertime(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	WtUInt64	sel_get_last_entertime(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	WtUInt64	sel_get_last_exittime(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	double		sel_get_last_enterprice(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	WtString	sel_get_last_entertag(CtxHandler cHandle, const char* stdCode);
+
+#pragma endregion "SEL接口"
 
 	//////////////////////////////////////////////////////////////////////////
-//HFT���Խӿ�
-#pragma  region "HFT�ӿ�"
+//HFT策略接口
+#pragma  region "HFT接口"
 
 	EXPORT_FLAG	double		hft_get_position(CtxHandler cHandle, const char* stdCode, bool bOnlyValid);
 
 	EXPORT_FLAG	double		hft_get_position_profit(CtxHandler cHandle, const char* stdCode);
+
+	EXPORT_FLAG	double		hft_get_position_avgpx(CtxHandler cHandle, const char* stdCode);
 
 	EXPORT_FLAG	double		hft_get_undone(CtxHandler cHandle, const char* stdCode);
 
@@ -178,7 +259,7 @@ extern "C"
 
 	EXPORT_FLAG	WtUInt32	hft_get_trans(CtxHandler cHandle, const char* stdCode, WtUInt32 tickCnt, FuncGetTransCallback cb);
 
-	EXPORT_FLAG	void		hft_log_text(CtxHandler cHandle, const char* message);
+	EXPORT_FLAG	void		hft_log_text(CtxHandler cHandle, WtUInt32 level, const char* message);
 
 	EXPORT_FLAG	void		hft_sub_ticks(CtxHandler cHandle, const char* stdCode);
 
@@ -201,7 +282,7 @@ extern "C"
 	EXPORT_FLAG	WtString	hft_load_userdata(CtxHandler cHandle, const char* key, const char* defVal);
 
 	EXPORT_FLAG	void		hft_step(CtxHandler cHandle);
-#pragma endregion "HFT�ӿ�"
+#pragma endregion "HFT接口"
 #ifdef __cplusplus
 }
 #endif
